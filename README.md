@@ -78,5 +78,3 @@ dotnet test
 Covers the cumulative PAYE/USC calculation (including a full-year invariant check) and the Benefit in
 Kind handling. It does not and cannot test the ROS/Manager.io clients against real services — those are
 validated by running the app for real.
-# Payroll
-# Payroll

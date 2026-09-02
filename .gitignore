@@ -1,0 +1,10 @@
+## Build output
+bin/
+obj/
+
+## Rider/IDE
+.idea/
+
+## Real config - contains personal data (PPSN, VAT number, home address, DOB) and internal Manager.io
+## account keys. Never commit this. See Payroll/appsettings.example.json for the structure instead.
+Payroll/appsettings.json

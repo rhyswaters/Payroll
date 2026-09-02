@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <ItemGroup>
+      <ProjectReference Include="..\Payroll.Core\Payroll.Core.csproj" />
+      <ProjectReference Include="..\Payroll.Ros\Payroll.Ros.csproj" />
+      <ProjectReference Include="..\Payroll.ManagerIo\Payroll.ManagerIo.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="appsettings.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.11" />
+      <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.11" />
+      <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.11" />
+      <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.11" />
+    </ItemGroup>
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+      <UserSecretsId>dfe1cb79-e58c-4593-a748-1d674f8a6505</UserSecretsId>
+  </PropertyGroup>
+
+</Project>
