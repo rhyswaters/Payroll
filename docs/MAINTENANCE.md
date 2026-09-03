@@ -58,6 +58,24 @@ the real debit date, if it's different, just open that payment directly in Manag
 date - it's a completely normal payment record like any other, nothing about it is locked or special
 because this tool created it.
 
+**Skipped-period detection.** Every successful `--vat-return` run logs itself to a filing history
+(`vat-filings.json`, next to `year-to-date.json`). The next time you run it, it checks for any completed
+period between your earliest logged filing and now that isn't in that history, and warns you rather than
+silently reporting on whatever's most recent (Revenue's own reminder emails are your primary safety net
+for *knowing when* a period is due - this is just a second check that you didn't lose track of one along
+the way). It also warns if you try to re-run `--vat-return` for a period already marked filed, requiring
+you to type `CONTINUE` to proceed - a guard against accidentally double-booking the reconciling payment.
+
+```
+dotnet run -- --vat-history     # lists every period recorded as filed, with the figures and filing date
+dotnet run -- --vat-mark-filed  # manually records a period as filed, without pulling figures from Manager.io
+```
+
+Use `--vat-mark-filed` to backfill history the first time you use this feature (there's naturally nothing
+recorded for periods filed before it existed - that's fine, `FindGaps` only checks from your *earliest*
+recorded filing onward, so it won't falsely flag pre-history periods), or if you ever file a period some
+other way and want the tool's own record to stay accurate.
+
 ## Annual tasks (do these every January, before the first payslip of the new tax year)
 
 1. **Nothing to bump in config.** Tax year isn't stored anywhere — `Program.cs` derives it from the pay

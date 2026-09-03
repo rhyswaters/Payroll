@@ -4,6 +4,12 @@ using Payroll.Core;
 using Payroll.ManagerIo;
 using Payroll.Ros;
 
+// No command-line flags given - most launches are Rider's Debug button or double-clicking a compiled
+// exe, neither of which lets you pass arguments, so ask interactively instead of just defaulting
+// straight into running payroll.
+if (args.Length == 0)
+    args = PromptForMenuChoice();
+
 var configuration = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
     .AddJsonFile("appsettings.json", optional: false)
@@ -146,10 +152,71 @@ if (args.Contains("--summary"))
     return 0;
 }
 
+if (args.Contains("--vat-history"))
+{
+    var records = new VatFilingStore(Path.Combine(dataDir, "vat-filings.json")).GetAll();
+    if (records.Count == 0)
+    {
+        Console.WriteLine("No VAT filings recorded yet.");
+        return 0;
+    }
+    Console.WriteLine("Recorded VAT filings:");
+    foreach (var r in records.OrderBy(r => r.PeriodStart))
+        Console.WriteLine($"  {r.PeriodStart:dd/MM/yyyy} - {r.PeriodEnd:dd/MM/yyyy}: filed {r.FiledOn:dd/MM/yyyy}, " +
+                           $"sales {r.RoundedSalesVat}, purchases {r.RoundedPurchasesVat}");
+    return 0;
+}
+
+if (args.Contains("--vat-mark-filed"))
+{
+    Console.WriteLine("Record a VAT period as filed without running the full --vat-return flow -");
+    Console.WriteLine("use this to backfill history, or to record one filed some other way.");
+    Console.Write("Period start date (yyyy-MM-dd, e.g. 2026-07-01): ");
+    if (!DateOnly.TryParse(Console.ReadLine(), out var periodStart))
+    {
+        Console.WriteLine("Not a valid date.");
+        return 1;
+    }
+    var manualPeriod = VatPeriod.Containing(periodStart);
+    Console.Write($"Period is {manualPeriod.Start:dd/MM/yyyy} - {manualPeriod.End:dd/MM/yyyy} - filed on date (yyyy-MM-dd) [today]: ");
+    var filedOnInput = (Console.ReadLine() ?? "").Trim();
+    var filedOn = string.IsNullOrWhiteSpace(filedOnInput) || !DateOnly.TryParse(filedOnInput, out var parsedFiledOn)
+        ? DateOnly.FromDateTime(DateTime.Today) : parsedFiledOn;
+
+    new VatFilingStore(Path.Combine(dataDir, "vat-filings.json")).MarkFiled(new VatFilingRecord(
+        manualPeriod.Start, manualPeriod.End, filedOn,
+        (int)PromptDecimal("Sales VAT (T1, whole euro)"), (int)PromptDecimal("Purchases VAT (T2, whole euro)")));
+    Console.WriteLine("Saved.");
+    return 0;
+}
+
 if (args.Contains("--vat-return"))
 {
     var period = VatPeriod.MostRecentlyCompleted(DateOnly.FromDateTime(DateTime.Today));
     Console.WriteLine($"VAT period: {period.Start:dd/MM/yyyy} - {period.End:dd/MM/yyyy}");
+
+    var vatFilingStore = new VatFilingStore(Path.Combine(dataDir, "vat-filings.json"));
+    var alreadyFiled = vatFilingStore.GetAll().FirstOrDefault(f => f.PeriodStart == period.Start);
+    if (alreadyFiled is not null)
+    {
+        Console.WriteLine($"This period was already recorded as filed on {alreadyFiled.FiledOn:dd/MM/yyyy} " +
+                           $"(sales {alreadyFiled.RoundedSalesVat}, purchases {alreadyFiled.RoundedPurchasesVat}).");
+        Console.Write("Type CONTINUE to run it again anyway (e.g. to redo a botched reconciliation), anything else to cancel: ");
+        if (Console.ReadLine() != "CONTINUE")
+        {
+            Console.WriteLine("Cancelled.");
+            return 0;
+        }
+    }
+
+    var gaps = vatFilingStore.FindGaps(period.Start);
+    if (gaps.Count > 0)
+    {
+        Console.WriteLine("WARNING: no filing recorded for the following completed period(s) - they may have been missed:");
+        foreach (var gap in gaps) Console.WriteLine($"  {gap:MMM yyyy}");
+        Console.WriteLine("This run will only handle the current period below; a missed one needs its own --vat-return run,");
+        Console.WriteLine("or if it was actually filed some other way, record it with --vat-mark-filed.");
+    }
 
     using var managerIoForVat = new ManagerIoClient(new ManagerIoOptions
     {
@@ -233,6 +300,9 @@ if (args.Contains("--vat-return"))
             paymentDate, vatReturn, $"VAT payment {period.Start:MMM yyyy} - {period.End:MMM yyyy}");
         Console.WriteLine($"Manager.io reconciling payment created: {reconciliationKey}");
         Console.WriteLine($"VAT Payable cleared by {vatReturn.UnroundedNetLiability:C}; rounding adjustment of {vatReturn.RoundingAdjustment:C} booked.");
+
+        vatFilingStore.MarkFiled(new VatFilingRecord(
+            period.Start, period.End, paymentDate, vatReturn.RoundedSalesVat, vatReturn.RoundedPurchasesVat));
     }
     catch (ManagerIoClientException ex)
     {
@@ -459,6 +529,39 @@ PayslipResult Recalculate()
         $"Payslip-{payDate:yyyy-MM}", employeeId, employee.FirstName, employee.FamilyName, payDate, gross, pension,
         eworkingAllowance, benefitsInKind);
     return PayrollCalculator.Calculate(rpn, ytdStore.Get(taxYear), PrsiSettings.ClassS, inputs);
+}
+
+static string[] PromptForMenuChoice()
+{
+    while (true)
+    {
+        Console.WriteLine();
+        Console.WriteLine("=== Payroll ===");
+        Console.WriteLine("1. Run payroll - review and submit this month's payslip");
+        Console.WriteLine("2. Generate VAT3 return");
+        Console.WriteLine("3. Summary - year-to-date tax + current VAT position");
+        Console.WriteLine("4. Show year-to-date totals");
+        Console.WriteLine("5. Seed/correct year-to-date totals");
+        Console.WriteLine("6. VAT filing history");
+        Console.WriteLine("7. Mark a VAT period as filed manually");
+        Console.WriteLine("8. List RPNs held by ROS");
+        Console.WriteLine("0. Quit");
+        Console.Write("Choose an option: ");
+
+        switch ((Console.ReadLine() ?? "").Trim())
+        {
+            case "1": return [];
+            case "2": return ["--vat-return"];
+            case "3": return ["--summary"];
+            case "4": return ["--show-ytd"];
+            case "5": return ["--seed-ytd"];
+            case "6": return ["--vat-history"];
+            case "7": return ["--vat-mark-filed"];
+            case "8": return ["--list-rpns"];
+            case "0": case "q": case "Q": Environment.Exit(0); break;
+            default: Console.WriteLine("Not a valid option, try again."); break;
+        }
+    }
 }
 
 static decimal PromptDecimal(string label)

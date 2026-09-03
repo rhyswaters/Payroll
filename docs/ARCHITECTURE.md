@@ -1,8 +1,20 @@
 # Architecture
 
+## Entry point: menu vs. flags
+
+`Program.cs` dispatches on `args`, a plain `string[]` of CLI flags (`--summary`, `--vat-return`, etc.) -
+each recognized flag is its own `if (args.Contains("--x")) { ...; return N; }` block, falling through to
+the default payroll flow if nothing matches (including empty `args`). `PromptForMenuChoice` is a thin
+layer in front of that: if `args.Length == 0` (true for Rider's Debug button or a double-clicked
+compiled exe - neither lets you pass arguments), it shows a numbered menu and translates the choice into
+the equivalent `args` value (e.g. picking "3" sets `args = ["--summary"]`) before any of the dispatch
+logic runs. Passing a flag directly on the command line skips the menu entirely and hits the same
+dispatch blocks the menu would have selected - there's exactly one code path per action either way, the
+menu doesn't duplicate any logic.
+
 ## The end-to-end flow
 
-Running `dotnet run` in `Payroll/` does this, in order:
+Running `dotnet run` in `Payroll/` (or picking "Run payroll" from the menu) does this, in order:
 
 1. Load config from `appsettings.json` + user-secrets, validate required fields are present.
 2. `RosClient.LookupRpnAsync` — a real-time, read-only HTTPS call to ROS asking "what's the current
@@ -290,6 +302,20 @@ failed - not from a bug, but because Manager.io's books only went back to late J
 transactions the actual filed return included. Before trusting this command's output for a real filing,
 sanity-check the printed sales/purchase breakdown against what you actually know was invoiced/spent that
 period - the tool can only total what's actually recorded.
+
+**Filing history and gap detection.** `VatPeriod.MostRecentlyCompleted` only ever answers "what's the
+latest completed period as of today" - on its own it has no memory of what's actually been filed, so a
+skipped period wouldn't be caught, just silently superseded by whatever's most recent next time you run
+it. `VatFilingStore` (`Payroll/VatFilingStore.cs`, a JSON file alongside `year-to-date.json`, so it lives
+wherever `Storage:DataDirectory` points) closes that gap: every successful `--vat-return` run records a
+`VatFilingRecord` for the period it just reconciled, and on startup `--vat-return` calls
+`VatFilingStore.FindGaps` - walking every bi-monthly period from the earliest filing on record up to (not
+including) the current target, flagging any that aren't in the store - to warn about anything that looks
+skipped. It also checks whether the *current* target period is already recorded as filed, prompting for
+explicit confirmation before letting you re-run it (protects against accidentally double-booking the
+reconciling payment). `--vat-mark-filed` exists for backfilling history (there's naturally none from
+before this feature existed) or recording a period filed some other way, without going through the full
+Manager.io figure-pulling flow.
 
 ## `--summary`
 

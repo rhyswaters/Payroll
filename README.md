@@ -23,16 +23,31 @@ by hand, see `docs/MAINTENANCE.md`).
 
 ## Running it
 
+Launched with no arguments — Rider's Debug button, double-clicking the compiled `.exe`, or plain
+`dotnet run` from `Payroll/` — it shows a numbered menu instead of guessing what you want:
+
 ```
-cd Payroll
-dotnet run
+=== Payroll ===
+1. Run payroll - review and submit this month's payslip
+2. Generate VAT3 return
+3. Summary - year-to-date tax + current VAT position
+4. Show year-to-date totals
+5. Seed/correct year-to-date totals
+6. VAT filing history
+7. Mark a VAT period as filed manually
+8. List RPNs held by ROS
+0. Quit
 ```
 
-This fetches the current RPN (read-only), shows a review screen, and lets you edit gross pay, pension,
-e-working days, benefits in kind, or the pay date before approving. Approving in the Production
-environment requires typing `SUBMIT` to confirm — it's a real submission to Revenue at that point.
-Adding a *new kind* of benefit in kind (beyond health insurance) is a config change, not a code change
-— see `docs/MAINTENANCE.md`.
+Each option is equivalent to one of the command-line flags below — the menu just picks one for you
+interactively (`PromptForMenuChoice` in `Program.cs`) rather than requiring you to remember flag names.
+Passing a flag directly (e.g. `dotnet run -- --summary`) skips the menu entirely, for terminal use.
+
+**Option 1 / plain `dotnet run`** fetches the current RPN (read-only), shows a review screen, and lets
+you edit gross pay, pension, e-working days, benefits in kind, or the pay date before approving.
+Approving in the Production environment requires typing `SUBMIT` to confirm — it's a real submission to
+Revenue at that point. Adding a *new kind* of benefit in kind (beyond health insurance) is a config
+change, not a code change — see `docs/MAINTENANCE.md`.
 
 Diagnostic commands (none of these submit anything):
 
@@ -54,6 +69,14 @@ Manager.io's "VAT Payable" ledger, writes the VAT3 XML file for you to upload to
 once you confirm you've actually paid — books a reconciling payment in Manager.io that clears VAT
 Payable to exactly zero (including the cents ROS's whole-euro rounding leaves behind, which BulletHQ
 never handled). See `docs/ARCHITECTURE.md` for how the figures are sourced.
+
+It also keeps a filing history (`vat-filings.json`, alongside `year-to-date.json`) so it can warn you if
+a completed period was never filed rather than silently moving on to the next one:
+
+```
+dotnet run -- --vat-history     # lists every period recorded as filed
+dotnet run -- --vat-mark-filed  # records a period as filed without running the full flow (backfill/correction)
+```
 
 ## Configuration
 
