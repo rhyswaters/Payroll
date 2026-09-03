@@ -29,13 +29,14 @@ Launched with no arguments — Rider's Debug button, double-clicking the compile
 ```
 === Payroll ===
 1. Run payroll - review and submit this month's payslip
-2. Generate VAT3 return
-3. Summary - year-to-date tax + current VAT position
-4. Show year-to-date totals
-5. Seed/correct year-to-date totals
-6. VAT filing history
-7. Mark a VAT period as filed manually
-8. List RPNs held by ROS
+2. Payroll dry run - what-if calculator, edit figures and see them recalculate, nothing submitted
+3. Generate VAT3 return
+4. Summary - year-to-date tax + current VAT position
+5. Show year-to-date totals
+6. Seed/correct year-to-date totals
+7. VAT filing history
+8. Mark a VAT period as filed manually
+9. List RPNs held by ROS
 0. Quit
 ```
 
@@ -59,6 +60,8 @@ dotnet run -- --list-rpns    # lists every RPN ROS holds for this employer/tax y
 dotnet run -- --show-ytd     # shows the locally tracked year-to-date totals
 dotnet run -- --seed-ytd     # overwrites the locally tracked year-to-date totals (interactive prompts)
 dotnet run -- --summary      # at-a-glance: YTD PAYE/USC/PRSI, plus the current (still-open) VAT period's running position
+dotnet run -- --dry-run      # fetches the current RPN, then lets you tweak gross/pension/e-working/BIK/date and see the
+                              # figures recalculate on the spot ("what if my gross was X?") - never submits or records anything
 ```
 
 Bi-monthly VAT3 return (no ROS integration — you upload the file yourself):

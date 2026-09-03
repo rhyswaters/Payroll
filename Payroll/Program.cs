@@ -9,11 +9,15 @@ using Payroll.Ros;
 // it after each action instead of running once and exiting. Passing a flag directly still runs once and
 // exits, for terminal/scripted use - PromptForMenuChoice's "0. Quit" is the only way to leave the loop
 // (it calls Environment.Exit directly).
+var skipPause = false;
+
 if (args.Length == 0)
 {
     while (true)
     {
         var choice = PromptForMenuChoice();
+        Console.WriteLine();
+        skipPause = false;
         try
         {
             await RunOnce(choice);
@@ -21,6 +25,13 @@ if (args.Length == 0)
         catch (Exception ex)
         {
             Console.WriteLine($"Unexpected error: {ex.Message}");
+        }
+
+        if (!skipPause)
+        {
+            Console.WriteLine();
+            Console.Write("Press Enter to continue...");
+            Console.ReadLine();
         }
     }
 }
@@ -93,6 +104,86 @@ async Task<int> RunOnce(string[] args)
         foreach (var r in all)
             Console.WriteLine($"  PPSN={r.EmployeeId.EmployeePpsn} EmploymentID={r.EmployeeId.EmploymentId} RPN={r.RpnNumber} YearlyCredits={r.YearlyTaxCredits:C}");
         return 0;
+    }
+
+    if (args.Contains("--dry-run"))
+    {
+        var year = DateTime.Today.Year;
+        var payDateDry = DateOnly.FromDateTime(DateTime.Today);
+
+        Console.WriteLine($"Fetching current RPN for {employee.FirstName} {employee.FamilyName} ({employeeId}) - tax year {year}, {rosConfig.Environment} environment...");
+
+        RpnDetails rpnDry;
+        try
+        {
+            rpnDry = await ros.LookupRpnAsync(year, employeeId);
+        }
+        catch (RosClientException ex)
+        {
+            Console.WriteLine($"Could not fetch RPN from ROS: {ex.Message}");
+            return 1;
+        }
+
+        Console.WriteLine($"RPN {rpnDry.RpnNumber} (issued {rpnDry.RpnIssueDate:yyyy-MM-dd}): yearly tax credits {rpnDry.YearlyTaxCredits:C}, USC status {rpnDry.UscStatus}");
+        Console.WriteLine("Dry run - figures only, nothing is ever submitted or recorded. Change any value to see it recalculate.");
+
+        var grossDry = employee.DefaultMonthlyGross;
+        var pensionDry = employee.DefaultMonthlyPensionContribution;
+        var eworkingDaysDry = employee.DefaultMonthlyEworkingDays;
+        var benefitsInKindDry = employee.DefaultBenefitsInKind
+            .Select(b => new BenefitInKindLine(b.Description, b.Amount, Enum.Parse<BikCategory>(b.Category)))
+            .ToList();
+
+        PayslipResult RecalculateDry()
+        {
+            var eworkingAllowance = eworkingDaysDry * employee.EworkingDailyRate;
+            var inputs = PayrollInputs.MonthlyFor(
+                $"Payslip-{payDateDry:yyyy-MM}", employeeId, employee.FirstName, employee.FamilyName, payDateDry, grossDry, pensionDry,
+                eworkingAllowance, benefitsInKindDry);
+            return PayrollCalculator.Calculate(rpnDry, ytdStore.Get(year), PrsiSettings.ClassS, inputs);
+        }
+
+        var dryResult = RecalculateDry();
+
+        while (true)
+        {
+            PrintPayslip(dryResult);
+            Console.WriteLine();
+            Console.Write("[G]ross pay, [P]ension, [E]working days, [B]enefits in kind, [D]ate, [Q]uit back to menu: ");
+            var choice = (Console.ReadLine() ?? "").Trim().ToUpperInvariant();
+
+            if (choice == "Q")
+            {
+                skipPause = true;
+                return 0;
+            }
+            if (choice == "G")
+            {
+                Console.Write($"New gross pay [{grossDry:0.00}]: ");
+                if (decimal.TryParse(Console.ReadLine(), out var g)) grossDry = g;
+            }
+            else if (choice == "P")
+            {
+                Console.Write($"New pension contribution [{pensionDry:0.00}]: ");
+                if (decimal.TryParse(Console.ReadLine(), out var p)) pensionDry = p;
+            }
+            else if (choice == "E")
+            {
+                Console.Write($"New e-working days [{eworkingDaysDry}]: ");
+                if (int.TryParse(Console.ReadLine(), out var e)) eworkingDaysDry = e;
+            }
+            else if (choice == "B")
+            {
+                EditBenefitsInKind(benefitsInKindDry);
+            }
+            else if (choice == "D")
+            {
+                Console.Write($"New pay date [{payDateDry:yyyy-MM-dd}]: ");
+                if (DateOnly.TryParse(Console.ReadLine(), out var d)) payDateDry = d;
+            }
+
+            dryResult = RecalculateDry();
+        }
     }
 
     if (args.Contains("--show-ytd"))
@@ -403,36 +494,7 @@ async Task<int> RunOnce(string[] args)
         }
         else if (choice == "B")
         {
-            if (benefitsInKind.Count == 0)
-                Console.WriteLine("No benefits in kind on this payslip.");
-            else
-                for (var i = 0; i < benefitsInKind.Count; i++)
-                    Console.WriteLine($"  [{i}] {benefitsInKind[i].Description}: {benefitsInKind[i].Amount:C} ({benefitsInKind[i].Category})");
-
-            Console.Write("Enter index to edit/remove, 'new' to add, or blank to cancel: ");
-            var bikInput = (Console.ReadLine() ?? "").Trim();
-
-            if (bikInput.Equals("new", StringComparison.OrdinalIgnoreCase))
-            {
-                Console.Write("Description: ");
-                var description = (Console.ReadLine() ?? "").Trim();
-                Console.Write("Amount: ");
-                decimal.TryParse(Console.ReadLine(), out var amount);
-                Console.Write("Category - [G]eneral (a car, accommodation, a loan...) or [M]edical insurance: ");
-                var category = (Console.ReadLine() ?? "").Trim().StartsWith("M", StringComparison.OrdinalIgnoreCase)
-                    ? BikCategory.MedicalInsurance : BikCategory.General;
-                if (!string.IsNullOrWhiteSpace(description))
-                    benefitsInKind.Add(new BenefitInKindLine(description, amount, category));
-            }
-            else if (int.TryParse(bikInput, out var bikIndex) && bikIndex >= 0 && bikIndex < benefitsInKind.Count)
-            {
-                Console.Write($"New amount for '{benefitsInKind[bikIndex].Description}' [{benefitsInKind[bikIndex].Amount:0.00}], or 'remove': ");
-                var editInput = (Console.ReadLine() ?? "").Trim();
-                if (editInput.Equals("remove", StringComparison.OrdinalIgnoreCase))
-                    benefitsInKind.RemoveAt(bikIndex);
-                else if (decimal.TryParse(editInput, out var newAmount))
-                    benefitsInKind[bikIndex] = benefitsInKind[bikIndex] with { Amount = newAmount };
-            }
+            EditBenefitsInKind(benefitsInKind);
             result = Recalculate();
         }
         else if (choice == "D")
@@ -551,6 +613,40 @@ async Task<int> RunOnce(string[] args)
     }
 }
 
+static void EditBenefitsInKind(List<BenefitInKindLine> list)
+{
+    if (list.Count == 0)
+        Console.WriteLine("No benefits in kind on this payslip.");
+    else
+        for (var i = 0; i < list.Count; i++)
+            Console.WriteLine($"  [{i}] {list[i].Description}: {list[i].Amount:C} ({list[i].Category})");
+
+    Console.Write("Enter index to edit/remove, 'new' to add, or blank to cancel: ");
+    var bikInput = (Console.ReadLine() ?? "").Trim();
+
+    if (bikInput.Equals("new", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Write("Description: ");
+        var description = (Console.ReadLine() ?? "").Trim();
+        Console.Write("Amount: ");
+        decimal.TryParse(Console.ReadLine(), out var amount);
+        Console.Write("Category - [G]eneral (a car, accommodation, a loan...) or [M]edical insurance: ");
+        var category = (Console.ReadLine() ?? "").Trim().StartsWith("M", StringComparison.OrdinalIgnoreCase)
+            ? BikCategory.MedicalInsurance : BikCategory.General;
+        if (!string.IsNullOrWhiteSpace(description))
+            list.Add(new BenefitInKindLine(description, amount, category));
+    }
+    else if (int.TryParse(bikInput, out var bikIndex) && bikIndex >= 0 && bikIndex < list.Count)
+    {
+        Console.Write($"New amount for '{list[bikIndex].Description}' [{list[bikIndex].Amount:0.00}], or 'remove': ");
+        var editInput = (Console.ReadLine() ?? "").Trim();
+        if (editInput.Equals("remove", StringComparison.OrdinalIgnoreCase))
+            list.RemoveAt(bikIndex);
+        else if (decimal.TryParse(editInput, out var newAmount))
+            list[bikIndex] = list[bikIndex] with { Amount = newAmount };
+    }
+}
+
 static string[] PromptForMenuChoice()
 {
     while (true)
@@ -558,26 +654,28 @@ static string[] PromptForMenuChoice()
         Console.WriteLine();
         Console.WriteLine("=== Payroll ===");
         Console.WriteLine("1. Run payroll - review and submit this month's payslip");
-        Console.WriteLine("2. Generate VAT3 return");
-        Console.WriteLine("3. Summary - year-to-date tax + current VAT position");
-        Console.WriteLine("4. Show year-to-date totals");
-        Console.WriteLine("5. Seed/correct year-to-date totals");
-        Console.WriteLine("6. VAT filing history");
-        Console.WriteLine("7. Mark a VAT period as filed manually");
-        Console.WriteLine("8. List RPNs held by ROS");
+        Console.WriteLine("2. Payroll dry run - calculate and show this month's figures, nothing submitted");
+        Console.WriteLine("3. Generate VAT3 return");
+        Console.WriteLine("4. Summary - year-to-date tax + current VAT position");
+        Console.WriteLine("5. Show year-to-date totals");
+        Console.WriteLine("6. Seed/correct year-to-date totals");
+        Console.WriteLine("7. VAT filing history");
+        Console.WriteLine("8. Mark a VAT period as filed manually");
+        Console.WriteLine("9. List RPNs held by ROS");
         Console.WriteLine("0. Quit");
         Console.Write("Choose an option: ");
 
         switch ((Console.ReadLine() ?? "").Trim())
         {
             case "1": return [];
-            case "2": return ["--vat-return"];
-            case "3": return ["--summary"];
-            case "4": return ["--show-ytd"];
-            case "5": return ["--seed-ytd"];
-            case "6": return ["--vat-history"];
-            case "7": return ["--vat-mark-filed"];
-            case "8": return ["--list-rpns"];
+            case "2": return ["--dry-run"];
+            case "3": return ["--vat-return"];
+            case "4": return ["--summary"];
+            case "5": return ["--show-ytd"];
+            case "6": return ["--seed-ytd"];
+            case "7": return ["--vat-history"];
+            case "8": return ["--vat-mark-filed"];
+            case "9": return ["--list-rpns"];
             case "0": case "q": case "Q": Environment.Exit(0); break;
             default: Console.WriteLine("Not a valid option, try again."); break;
         }
