@@ -50,6 +50,12 @@ it'll book a reconciling payment in Manager.io that clears the VAT Payable accou
 (handling ROS's whole-euro rounding properly, unlike BulletHQ). Typing `cancel` at that prompt skips
 recording anything, if you're not ready yet or the figures didn't look right.
 
+**ROS doesn't reliably debit on the date you specify** - confirmed in practice: a payment dated 1
+September was actually taken on 31 August instead. Whatever date you enter at that prompt is your best
+guess at the time, not a guarantee. Once your bank statement shows the real debit date, if it's
+different, just open that payment directly in Manager.io and edit the date - it's a completely normal
+payment record like any other, nothing about it is locked or special because this tool created it.
+
 ## Annual tasks (do these every January, before the first payslip of the new tax year)
 
 1. **Nothing to bump in config.** Tax year isn't stored anywhere — `Program.cs` derives it from the pay
