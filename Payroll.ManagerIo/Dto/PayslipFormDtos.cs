@@ -41,6 +41,7 @@ public sealed class PaymentFormDto
 {
     [JsonPropertyName("Date")] public required string Date { get; init; }
     [JsonPropertyName("PaidFrom")] public required string PaidFrom { get; init; }
+    [JsonPropertyName("Contact")] public string? Contact { get; init; }
     [JsonPropertyName("Description")] public required string Description { get; init; }
     [JsonPropertyName("Lines")] public required List<PaymentLineDto> Lines { get; init; }
     [JsonPropertyName("CustomFields2")] public object CustomFields2 { get; init; } = new();

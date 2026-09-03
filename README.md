@@ -59,7 +59,7 @@ Diagnostic commands (none of these submit anything):
 dotnet run -- --list-rpns    # lists every RPN ROS holds for this employer/tax year
 dotnet run -- --show-ytd     # shows the locally tracked year-to-date totals
 dotnet run -- --seed-ytd     # overwrites the locally tracked year-to-date totals (interactive prompts)
-dotnet run -- --summary      # at-a-glance: YTD PAYE/USC/PRSI, plus the current (still-open) VAT period's running position
+dotnet run -- --summary      # at-a-glance: YTD PAYE/USC/PRSI, plus the current VAT Payable balance (same figure Manager.io's own Summary -> Liabilities shows)
 dotnet run -- --dry-run      # fetches the current RPN, then lets you tweak gross/pension/e-working/BIK/date and see the
                               # figures recalculate on the spot ("what if my gross was X?") - never submits or records anything
 ```

@@ -7,8 +7,9 @@ using Payroll.Ros;
 // No command-line flags given - most launches are Rider's Debug button or double-clicking a compiled
 // exe, neither of which lets you pass arguments, so show an interactive menu and keep looping back to
 // it after each action instead of running once and exiting. Passing a flag directly still runs once and
-// exits, for terminal/scripted use - PromptForMenuChoice's "0. Quit" is the only way to leave the loop
-// (it calls Environment.Exit directly).
+// exits, for terminal/scripted use - PromptForMenuChoice's "0. Quit" returns null to end the loop via a
+// normal return rather than Environment.Exit, which forces an abrupt process-level exit that some
+// terminals (observed with the self-contained published exe) don't recover from cleanly.
 var skipPause = false;
 
 if (args.Length == 0)
@@ -16,6 +17,8 @@ if (args.Length == 0)
     while (true)
     {
         var choice = PromptForMenuChoice();
+        if (choice is null) return 0;
+
         Console.WriteLine();
         skipPause = false;
         try
@@ -227,7 +230,7 @@ async Task<int> RunOnce(string[] args)
         var today = DateOnly.FromDateTime(DateTime.Today);
         var currentPeriod = VatPeriod.Containing(today);
         Console.WriteLine();
-        Console.WriteLine($"=== VAT, current period so far ({currentPeriod.Start:dd/MM/yyyy} - {today:dd/MM/yyyy}, period ends {currentPeriod.End:dd/MM/yyyy}) ===");
+        Console.WriteLine($"=== VAT Payable balance as of today (current period runs {currentPeriod.Start:dd/MM/yyyy} - {currentPeriod.End:dd/MM/yyyy}) ===");
 
         using var managerIoForSummary = new ManagerIoClient(new ManagerIoOptions
         {
@@ -242,17 +245,22 @@ async Task<int> RunOnce(string[] args)
             PrsiDeductionItemKey = managerIoConfig.PrsiDeductionItemKey,
             BenefitInKindDeductionItemKeys = managerIoConfig.BenefitInKindDeductionItemKeys,
             VatPayableAccountKey = managerIoConfig.VatPayableAccountKey,
-            VatRoundingAdjustmentAccountKey = managerIoConfig.VatRoundingAdjustmentAccountKey
+            VatRoundingAdjustmentAccountKey = managerIoConfig.VatRoundingAdjustmentAccountKey,
+            RevenuePayeeName = managerIoConfig.RevenuePayeeName
         });
 
         try
         {
-            var figures = await managerIoForSummary.GetVatFiguresAsync(currentPeriod.Start, today);
-            Console.WriteLine($"Sales VAT so far:     {figures.SalesVat,10:C}");
-            Console.WriteLine($"Purchases VAT so far: {figures.PurchasesVat,10:C}");
-            Console.WriteLine($"Net position so far:  {figures.SalesVat - figures.PurchasesVat,10:C} (running - period isn't closed, don't file this)");
-            if (figures.UnexpectedLines.Count > 0)
-                Console.WriteLine($"Note: {figures.UnexpectedLines.Count} entries from other transaction types found - not included above, see --vat-return closer to period end.");
+            // The account's own running balance, not a period-scoped reconstruction - this needs no
+            // classification of *why* any given line was posted (settling a past period's liability
+            // reduces the balance exactly as validly as reclaiming VAT on a purchase does), so it's as
+            // reliable as reading it straight off Manager.io's own "Liabilities" summary.
+            var balance = await managerIoForSummary.GetVatPayableBalanceAsync(today);
+            Console.WriteLine(balance.Balance >= 0
+                ? $"Currently owed to Revenue: {balance.Balance,10:C} (running - period isn't closed, don't file this)"
+                : $"Currently owed to you:     {-balance.Balance,10:C} (running - period isn't closed, don't file this)");
+            if (balance.UnexpectedLines.Count > 0)
+                Console.WriteLine($"Note: {balance.UnexpectedLines.Count} entries from other transaction types found on VAT Payable - not included above, see --vat-return closer to period end.");
         }
         catch (Exception ex) when (ex is HttpRequestException or ManagerIoClientException)
         {
@@ -341,13 +349,36 @@ async Task<int> RunOnce(string[] args)
             PrsiDeductionItemKey = managerIoConfig.PrsiDeductionItemKey,
             BenefitInKindDeductionItemKeys = managerIoConfig.BenefitInKindDeductionItemKeys,
             VatPayableAccountKey = managerIoConfig.VatPayableAccountKey,
-            VatRoundingAdjustmentAccountKey = managerIoConfig.VatRoundingAdjustmentAccountKey
+            VatRoundingAdjustmentAccountKey = managerIoConfig.VatRoundingAdjustmentAccountKey,
+            RevenuePayeeName = managerIoConfig.RevenuePayeeName
         });
 
         VatFigures figures;
         try
         {
             figures = await managerIoForVat.GetVatFiguresAsync(period.Start, period.End);
+
+            // Cross-check the classified sales/purchases split against the account's actual balance
+            // movement over the same dates. These are NOT expected to be equal whenever a settlement
+            // payment to Revenue falls inside the period (the normal case, since ROS's filing deadline for
+            // the prior period lands inside this one) - a settlement genuinely reduces the account's raw
+            // balance just like a purchase would, so classifiedNet (which excludes it) legitimately
+            // differs from actualMovement (which doesn't) by exactly the settlement amount. What should
+            // never differ is (classifiedNet - actualMovement) vs. the settlement total itself - if those
+            // two disagree, some line touching VAT Payable wasn't accounted for by sales, correctly-
+            // classified purchases, or an identified settlement, meaning something was missed or
+            // misclassified (e.g. a mistyped ManagerIo:RevenuePayeeName).
+            var balanceBefore = await managerIoForVat.GetVatPayableBalanceAsync(period.Start.AddDays(-1));
+            var balanceAfter = await managerIoForVat.GetVatPayableBalanceAsync(period.End);
+            var classifiedNet = figures.SalesVat - figures.PurchasesVat;
+            var actualMovement = balanceAfter.Balance - balanceBefore.Balance;
+            var settlementTotal = figures.SettlementLines.Sum(l => l.Amount);
+            if (Math.Abs((classifiedNet - actualMovement) - settlementTotal) > 0.01m)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"WARNING: the sales/purchases split below nets to {classifiedNet:C}, and {settlementTotal:C} of settlement payments were excluded from it, but VAT Payable's actual balance only moved by {actualMovement:C} over this period - those don't reconcile.");
+                Console.WriteLine("This usually means a payment to Revenue wasn't recognised (check ManagerIo:RevenuePayeeName matches the payee used) or VAT Payable carried a balance into this period. Review the figures below manually before filing.");
+            }
         }
         catch (Exception ex) when (ex is HttpRequestException or ManagerIoClientException)
         {
@@ -363,6 +394,13 @@ async Task<int> RunOnce(string[] args)
         Console.WriteLine("Purchases VAT (from Payments):");
         foreach (var l in figures.PurchaseLines) Console.WriteLine($"  {l.Date:yyyy-MM-dd}  {l.Amount,10:C}");
         Console.WriteLine($"  Total: {figures.PurchasesVat:C}");
+
+        if (figures.SettlementLines.Count > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Excluded from purchases VAT above - payment(s) to {managerIoConfig.RevenuePayeeName} (settles a prior period's liability, not a purchase):");
+            foreach (var l in figures.SettlementLines) Console.WriteLine($"  {l.Date:yyyy-MM-dd}  {l.Amount,10:C}");
+        }
 
         if (figures.UnexpectedLines.Count > 0)
         {
@@ -647,7 +685,7 @@ static void EditBenefitsInKind(List<BenefitInKindLine> list)
     }
 }
 
-static string[] PromptForMenuChoice()
+static string[]? PromptForMenuChoice()
 {
     while (true)
     {
@@ -676,7 +714,7 @@ static string[] PromptForMenuChoice()
             case "7": return ["--vat-history"];
             case "8": return ["--vat-mark-filed"];
             case "9": return ["--list-rpns"];
-            case "0": case "q": case "Q": Environment.Exit(0); break;
+            case "0": case "q": case "Q": return null;
             default: Console.WriteLine("Not a valid option, try again."); break;
         }
     }

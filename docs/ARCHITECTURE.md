@@ -298,6 +298,32 @@ isn't verified the way Receipts/Payments are, so the command checks all four for
 ever starts using Sales Invoices, Purchase Invoices, or any of those four, extend
 `GetVatFiguresAsync` to cover them properly rather than trusting the warning path indefinitely.
 
+**A payment to Revenue is not a purchase.** A Payment line against VAT Payable normally means input
+VAT reclaimed on a purchase, which is exactly right for T2 - but *paying Revenue the VAT you owe* also
+posts an ordinary Payment line against the same account, and looks identical to a genuine purchase at
+the API level (Manager.io's `payment-lines` endpoint gives no payee, only date/account/amount). Left
+unhandled, this double-counts: money paid to settle a *previous* period's liability gets counted as
+*this* period's reclaimable purchase VAT (discovered when a manual, split VAT payment - part to VAT
+Payable, part to a P&L expense account, because the books weren't complete when the period was filed -
+inflated the next period's running total by the settlement amount). `GetVatFiguresAsync` excludes these:
+`FetchVatSettlementLines` looks up the *payee* of every payment (available on `/payments` and
+`/payment-form/{key}`, just not on `/payment-lines`) via `ManagerIo:RevenuePayeeName` (default
+`"Revenue"`), and any of its lines against VAT Payable are reported separately as `VatFigures.
+SettlementLines` rather than folded into `PurchasesVat`. `CreateVatReconciliationPaymentAsync` sets this
+same payee on its own reconciliation payments, so the app's own automated settlements are excluded from
+a later period's figures identically to a manual one.
+
+Because that exclusion depends on the payee being set correctly (a typo, or a payment made without one,
+would silently misclassify a settlement as a purchase again), `--vat-return` cross-checks the classified
+split against the account's actual balance movement over the same dates (`GetVatPayableBalanceAsync` -
+see below). These are *not* expected to be equal whenever a settlement lands inside the period (the
+normal case, since ROS's filing deadline for the prior period falls inside this one) - a settlement
+reduces the raw balance exactly like a purchase would, so the classified net (which excludes it)
+legitimately differs from the raw movement (which doesn't) by exactly the settlement amount. What must
+always hold is `classifiedNet - actualMovement == settlementTotal`; if that doesn't reconcile to within a
+cent, some line touching VAT Payable wasn't accounted for by sales, correctly-classified purchases, or an
+identified settlement - the command **warns loudly** rather than trusting the split silently.
+
 **The rounding reconciliation**: ROS's VAT3 form only accepts whole euro for T1/T2 (`VatReturn.
 RoundedSalesVat`/`RoundedPurchasesVat`), so the actual amount paid (`NetPayable`, computed from the
 *rounded* figures - matching how ROS itself calculates what you owe) essentially never exactly equals
@@ -333,9 +359,15 @@ Manager.io figure-pulling flow.
 ## `--summary`
 
 A read-only, at-a-glance check: year-to-date PAYE/USC/PRSI from the local `YearToDateStore`, plus the
-*current, still-open* VAT period's running sales/purchases VAT position. The latter reuses
-`ManagerIoClient.GetVatFiguresAsync` - the exact same method `--vat-return` uses - but for
-`VatPeriod.Containing(today)` (the in-progress period) rather than `VatPeriod.MostRecentlyCompleted`
-(the last closed one). Everything `--vat-return`'s "Data completeness" caveat says about only covering
-Receipts/Payments applies here identically - this is a running total, not something to file, and it's
-only as complete as what's actually been entered in Manager.io so far this period.
+current VAT Payable balance from Manager.io (`ManagerIoClient.GetVatPayableBalanceAsync`).
+
+This is deliberately **not** the same period-scoped classification `--vat-return` uses. `--summary` just
+wants "how much do I currently owe" - the same number Manager.io's own Summary → Liabilities page shows
+for VAT Payable - so it sums every Receipt/Payment line against the account since it began, with no
+period boundary and no need to tell a purchase apart from a payment settling Revenue directly: either
+one genuinely reduces the balance, so there's nothing to misclassify. This sidesteps the whole
+settlement-payee problem above entirely, at the cost of only being reliable as a running total (it drifts
+from the true current-period accrual if VAT Payable ever carries an un-reconciled balance across a period
+boundary - which, given `--vat-return`'s reconciliation payment is designed to zero the account out after
+every filing, shouldn't normally happen). Same caveat as `--vat-return` about Credit Notes/Debit
+Notes/Expense Claims/Journal Entries applies - flagged, not included.

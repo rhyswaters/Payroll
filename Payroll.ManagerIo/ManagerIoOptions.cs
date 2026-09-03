@@ -32,4 +32,9 @@ public sealed class ManagerIoOptions
     /// <summary>A small P&amp;L account absorbing the rounding difference between the true accrued VAT
     /// liability and the whole-euro amount ROS actually calculates as owed.</summary>
     public string? VatRoundingAdjustmentAccountKey { get; init; }
+
+    /// <summary>The payee/contact name used on payments made to Revenue (e.g. VAT settlements). Used to
+    /// tell a liability-clearing payment apart from a genuine purchase, since both post an ordinary
+    /// Payment line against "VAT Payable" and look identical otherwise. Defaults to "Revenue".</summary>
+    public string RevenuePayeeName { get; init; } = "Revenue";
 }

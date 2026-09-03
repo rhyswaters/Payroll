@@ -77,4 +77,5 @@ public sealed class ManagerIoConfigOptions
     public Dictionary<string, string> BenefitInKindDeductionItemKeys { get; set; } = [];
     public string? VatPayableAccountKey { get; set; }
     public string? VatRoundingAdjustmentAccountKey { get; set; }
+    public string RevenuePayeeName { get; set; } = "Revenue";
 }
