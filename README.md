@@ -98,12 +98,12 @@ needs nothing else on the machine):
 ```
 dotnet publish Payroll -c Release -r osx-arm64 --self-contained true \
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-  -o ~/Desktop/Payroll-app
+  -o ~/OneDrive/RhysCom/Payroll/Payroll-app
 ```
 
 (`osx-arm64` is for Apple Silicon Macs — use `osx-x64` on an Intel Mac.) That folder gets a `Payroll`
 executable plus `appsettings.json` sitting next to it — keep them together, and re-run this command
-after any code change to refresh the desktop copy.
+after any code change to refresh the published copy (the app in the dock launches this build).
 
 ## Configuration
 
