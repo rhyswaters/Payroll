@@ -23,8 +23,8 @@ by hand, see `docs/MAINTENANCE.md`).
 
 ## Running it
 
-Launched with no arguments — Rider's Debug button, double-clicking the compiled `.exe`, or plain
-`dotnet run` from `Payroll/` — it shows a numbered menu instead of guessing what you want:
+Launched with no arguments — Rider's Debug button, double-clicking the published desktop app (see
+below), or plain `dotnet run` from `Payroll/` — it shows a numbered menu instead of guessing what you want:
 
 ```
 === Payroll ===
@@ -83,6 +83,27 @@ a completed period was never filed rather than silently moving on to the next on
 dotnet run -- --vat-history     # lists every period recorded as filed
 dotnet run -- --vat-mark-filed  # records a period as filed without running the full flow (backfill/correction)
 ```
+
+## Building the desktop app
+
+A plain `dotnet build -c Release` produces a *framework-dependent* exe — it needs a matching .NET
+runtime installed and discoverable at launch. Double-clicking it from Finder doesn't pick up your
+shell's `PATH` (so it won't find a `dotnet` install that's only registered there), and will fail with
+"you must install .NET" even though `dotnet run` works fine in a terminal or in Rider.
+
+To get an exe that runs standalone with no .NET install required at all, publish it *self-contained*
+(this bundles the .NET 10 runtime into the exe itself — it's ~80MB instead of a few hundred KB, but
+needs nothing else on the machine):
+
+```
+dotnet publish Payroll -c Release -r osx-arm64 --self-contained true \
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+  -o ~/Desktop/Payroll-app
+```
+
+(`osx-arm64` is for Apple Silicon Macs — use `osx-x64` on an Intel Mac.) That folder gets a `Payroll`
+executable plus `appsettings.json` sitting next to it — keep them together, and re-run this command
+after any code change to refresh the desktop copy.
 
 ## Configuration
 
