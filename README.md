@@ -39,6 +39,9 @@ Launched with no arguments — Rider's Debug button, double-clicking the compile
 0. Quit
 ```
 
+After each action it returns to this menu rather than exiting, so the app can just be left open — `0. Quit`
+is the only thing that actually ends the program.
+
 Each option is equivalent to one of the command-line flags below — the menu just picks one for you
 interactively (`PromptForMenuChoice` in `Program.cs`) rather than requiring you to remember flag names.
 Passing a flag directly (e.g. `dotnet run -- --summary`) skips the menu entirely, for terminal use.

@@ -2,15 +2,28 @@
 
 ## Entry point: menu vs. flags
 
-`Program.cs` dispatches on `args`, a plain `string[]` of CLI flags (`--summary`, `--vat-return`, etc.) -
-each recognized flag is its own `if (args.Contains("--x")) { ...; return N; }` block, falling through to
-the default payroll flow if nothing matches (including empty `args`). `PromptForMenuChoice` is a thin
-layer in front of that: if `args.Length == 0` (true for Rider's Debug button or a double-clicked
-compiled exe - neither lets you pass arguments), it shows a numbered menu and translates the choice into
-the equivalent `args` value (e.g. picking "3" sets `args = ["--summary"]`) before any of the dispatch
-logic runs. Passing a flag directly on the command line skips the menu entirely and hits the same
-dispatch blocks the menu would have selected - there's exactly one code path per action either way, the
-menu doesn't duplicate any logic.
+Nearly everything that used to be top-level script logic now lives in one local function,
+`async Task<int> RunOnce(string[] args)` - it dispatches on `args`, a plain `string[]` of CLI flags
+(`--summary`, `--vat-return`, etc.), each recognized flag its own
+`if (args.Contains("--x")) { ...; return N; }` block, falling through to the default payroll flow if
+nothing matches (including empty `args`). Inside `RunOnce`, `return N` just returns from that call, same
+as it always returned from Main before this existed as a separate function - no behaviour change to any
+individual action.
+
+What sits outside `RunOnce` is what decides *how many times* to call it. If launched with real
+command-line flags (`args.Length != 0` at true process start - a genuine terminal/scripted invocation),
+the top level just does `return await RunOnce(args);` once and the process exits normally, exactly as it
+always did. If launched with no arguments at all (Rider's Debug button, a double-clicked compiled exe -
+neither lets you pass arguments), it instead loops: `PromptForMenuChoice` shows a numbered menu and
+translates the choice into the equivalent `args` value (e.g. picking "3" produces `["--summary"]`), calls
+`RunOnce` with it, and loops back to the menu again once that call returns - so the app stays open across
+actions instead of exiting after one. The loop also wraps each `RunOnce` call in a try/catch, so an
+unexpected exception in one action prints an error and returns to the menu rather than killing the whole
+session. `0. Quit` is the only way out of that loop, via `Environment.Exit` inside `PromptForMenuChoice`.
+
+There's still exactly one code path per action regardless of how it's reached - the menu doesn't
+duplicate any dispatch logic, it just decides which `args` to call `RunOnce` with and whether to do it
+again afterward.
 
 ## The end-to-end flow
 
