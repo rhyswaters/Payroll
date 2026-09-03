@@ -45,16 +45,18 @@ Journal Entries touching the VAT Payable account), those amounts are deliberatel
 totals — review them manually and adjust the figures yourself before filing, or extend
 `GetVatFiguresAsync` if that transaction type becomes a regular thing.
 
-Once you've actually uploaded the file and paid on ROS, come back and give it the real payment date —
-it'll book a reconciling payment in Manager.io that clears the VAT Payable account to exactly zero
-(handling ROS's whole-euro rounding properly, unlike BulletHQ). Typing `cancel` at that prompt skips
-recording anything, if you're not ready yet or the figures didn't look right.
+Once you've actually uploaded the file and submitted payment on ROS, come back and give it the payment
+date you specified on ROS's own payment screen (not necessarily today - ROS lets you choose) - it'll
+book a reconciling payment in Manager.io that clears the VAT Payable account to exactly zero (handling
+ROS's whole-euro rounding properly, unlike BulletHQ). Typing `cancel` at that prompt skips recording
+anything, if you're not ready yet or the figures didn't look right.
 
-**ROS doesn't reliably debit on the date you specify** - confirmed in practice: a payment dated 1
-September was actually taken on 31 August instead. Whatever date you enter at that prompt is your best
-guess at the time, not a guarantee. Once your bank statement shows the real debit date, if it's
-different, just open that payment directly in Manager.io and edit the date - it's a completely normal
-payment record like any other, nothing about it is locked or special because this tool created it.
+**ROS doesn't reliably debit on the date you specify there** - confirmed in practice: a payment dated 1
+September was actually taken on 31 August instead. So whatever date you enter at that prompt is your
+specified/requested date, not a guarantee of what ROS will actually do. Once your bank statement shows
+the real debit date, if it's different, just open that payment directly in Manager.io and edit the
+date - it's a completely normal payment record like any other, nothing about it is locked or special
+because this tool created it.
 
 ## Annual tasks (do these every January, before the first payslip of the new tax year)
 

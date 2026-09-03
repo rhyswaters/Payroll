@@ -212,11 +212,11 @@ if (args.Contains("--vat-return"))
     Console.WriteLine($"XML written to: {xmlPath}");
 
     Console.WriteLine();
-    Console.WriteLine("Upload this file to ROS (My Services -> Complete a Form Online / File a Return -> VAT3)");
-    Console.WriteLine("and submit your payment there now.");
-    Console.WriteLine("Note: ROS doesn't reliably debit on the date you specify - check your bank statement in a");
+    Console.WriteLine("Upload this file to ROS (My Services -> Complete a Form Online / File a Return -> VAT3), then submit");
+    Console.WriteLine("payment there - you'll be asked to choose a payment date on ROS's own payment screen.");
+    Console.WriteLine("Note: ROS doesn't reliably debit on the date you specify there - check your bank statement in a");
     Console.WriteLine("few days and correct the date on this payment directly in Manager.io if it's actually different.");
-    Console.Write("Enter the date you actually paid on ROS (yyyy-MM-dd) [today], or type 'cancel' to skip recording a payment: ");
+    Console.Write("Enter the payment date you specified on ROS (yyyy-MM-dd) [today], or type 'cancel' to skip recording a payment: ");
     var paymentDateInput = (Console.ReadLine() ?? "").Trim();
     if (paymentDateInput.Equals("cancel", StringComparison.OrdinalIgnoreCase))
     {
