@@ -40,7 +40,9 @@ public static class PayrollCalculator
         // PRSI is reckoned per period on taxable gross pay (no pension relief, no RPN band data involved).
         var payForEmployeePrsi = taxableGrossPay;
         var prsiRate = prsi.RateFor(inputs.PayDate);
-        var employeePrsi = Round(payForEmployeePrsi * prsiRate.EmployeeRatePercent / 100m);
+        // RateFor already throws if the rate for this date isn't confirmed yet, so this is always non-null.
+        var prsiRatePercent = prsiRate.EmployeeRatePercent!.Value;
+        var employeePrsi = Round(payForEmployeePrsi * prsiRatePercent / 100m);
 
         var netPay = inputs.GrossPay - inputs.EmployeePensionContribution - incomeTax - usc - employeePrsi + inputs.EworkingAllowance;
 
@@ -48,7 +50,7 @@ public static class PayrollCalculator
             inputs, rpn.RpnNumber,
             Round(payForIncomeTax), incomeTax,
             Round(payForUsc), usc,
-            prsi.PrsiClass, prsiRate.EmployeeRatePercent, Round(payForEmployeePrsi), employeePrsi,
+            prsi.PrsiClass, prsiRatePercent, Round(payForEmployeePrsi), employeePrsi,
             Round(netPay));
     }
 
