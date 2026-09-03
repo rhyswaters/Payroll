@@ -43,12 +43,18 @@ employment — this one — they are always zero, forever, no matter how many pa
 expects **your own payroll software** to track the running total, the same job BulletHQ was quietly
 doing all along.
 
-That's what `YearToDateStore` (in `Payroll/YearToDateStore.cs`) does: a small JSON file at
-`~/.config/Payroll/year-to-date.json` (technically `Environment.SpecialFolder.ApplicationData`, which
-resolves to `~/.config` on macOS/Linux under .NET), keyed by tax year, holding
-`{ PayForIncomeTaxToDate, IncomeTaxDeductedToDate, PayForUscToDate, UscDeductedToDate }`. It's updated
-once per successful ROS payroll submission (`Program.cs`, right after `CreatePayrollSubmissionAsync`
-succeeds), by adding that payslip's figures via `YearToDateTotals.Add`.
+That's what `YearToDateStore` (in `Payroll/YearToDateStore.cs`) does: a small JSON file, keyed by tax
+year, holding `{ PayForIncomeTaxToDate, IncomeTaxDeductedToDate, PayForUscToDate, UscDeductedToDate,
+PrsiDeductedToDate }` (the last is informational only - PRSI isn't cumulative, see below - kept purely
+so `--summary`/`--show-ytd` can report a running total). It's updated once per successful ROS payroll
+submission (`Program.cs`, right after `CreatePayrollSubmissionAsync` succeeds), by adding that payslip's
+figures via `YearToDateTotals.Add`.
+
+It lives at `Storage:DataDirectory` from config if set, otherwise `Environment.SpecialFolder.
+ApplicationData` (which resolves to `~/Library/Application Support` on macOS - **not** `~/.config`,
+which is the Linux XDG convention people sometimes assume). Since a lost or dead machine would take this
+file with it otherwise, `Storage:DataDirectory` exists specifically so it can point at a synced/backed-up
+folder instead (this setup uses the same OneDrive folder the ROS cert lives in).
 
 **If this file is ever lost, wrong, or you skip a month without updating it, every subsequent PAYE/USC
 calculation will be wrong** (in the same direction we discovered on the first real run: it'll look like
@@ -284,3 +290,13 @@ failed - not from a bug, but because Manager.io's books only went back to late J
 transactions the actual filed return included. Before trusting this command's output for a real filing,
 sanity-check the printed sales/purchase breakdown against what you actually know was invoiced/spent that
 period - the tool can only total what's actually recorded.
+
+## `--summary`
+
+A read-only, at-a-glance check: year-to-date PAYE/USC/PRSI from the local `YearToDateStore`, plus the
+*current, still-open* VAT period's running sales/purchases VAT position. The latter reuses
+`ManagerIoClient.GetVatFiguresAsync` - the exact same method `--vat-return` uses - but for
+`VatPeriod.Containing(today)` (the in-progress period) rather than `VatPeriod.MostRecentlyCompleted`
+(the last closed one). Everything `--vat-return`'s "Data completeness" caveat says about only covering
+Receipts/Payments applies here identically - this is a running total, not something to file, and it's
+only as complete as what's actually been entered in Manager.io so far this period.

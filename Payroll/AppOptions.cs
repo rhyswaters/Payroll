@@ -40,6 +40,15 @@ public sealed class EmployeeOptions
     public string CountryCode { get; set; } = "IRL";
 }
 
+public sealed class StorageOptions
+{
+    /// <summary>Where the year-to-date store and generated VAT3 XML files live. Leave blank to use the
+    /// default (~/Library/Application Support/Payroll on macOS) - set it to point at a backed-up/synced
+    /// folder (e.g. your OneDrive) so this data survives a lost or dead machine, the same way Ros:P12Path
+    /// already does for the cert.</summary>
+    public string? DataDirectory { get; set; }
+}
+
 public sealed class RosConfigOptions
 {
     public string SoftwareUsed { get; set; } = "";

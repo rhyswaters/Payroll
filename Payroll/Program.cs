@@ -15,6 +15,7 @@ var employer = configuration.GetSection("Employer").Get<EmployerOptions>() ?? ne
 var employee = configuration.GetSection("Employee").Get<EmployeeOptions>() ?? new EmployeeOptions();
 var rosConfig = configuration.GetSection("Ros").Get<RosConfigOptions>() ?? new RosConfigOptions();
 var managerIoConfig = configuration.GetSection("ManagerIo").Get<ManagerIoConfigOptions>() ?? new ManagerIoConfigOptions();
+var storageConfig = configuration.GetSection("Storage").Get<StorageOptions>() ?? new StorageOptions();
 
 var missing = new List<string>();
 if (string.IsNullOrWhiteSpace(employer.RegistrationNumber)) missing.Add("Employer:RegistrationNumber");
@@ -53,7 +54,9 @@ using var ros = new RosClient(new RosOptions
     Environment = Enum.Parse<RosEnvironment>(rosConfig.Environment, ignoreCase: true)
 });
 
-var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Payroll");
+var dataDir = string.IsNullOrWhiteSpace(storageConfig.DataDirectory)
+    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Payroll")
+    : storageConfig.DataDirectory;
 Directory.CreateDirectory(dataDir);
 var ytdStore = new YearToDateStore(Path.Combine(dataDir, "year-to-date.json"));
 
@@ -76,6 +79,7 @@ if (args.Contains("--show-ytd"))
     Console.WriteLine($"  Income tax deducted to date: {current.IncomeTaxDeductedToDate:C}");
     Console.WriteLine($"  Pay for USC to date:         {current.PayForUscToDate:C}");
     Console.WriteLine($"  USC deducted to date:        {current.UscDeductedToDate:C}");
+    Console.WriteLine($"  PRSI deducted to date:       {current.PrsiDeductedToDate:C}");
     return 0;
 }
 
@@ -87,9 +91,58 @@ if (args.Contains("--seed-ytd"))
         PromptDecimal("Pay for income tax to date"),
         PromptDecimal("Income tax deducted to date"),
         PromptDecimal("Pay for USC to date"),
-        PromptDecimal("USC deducted to date"));
+        PromptDecimal("USC deducted to date"),
+        PromptDecimal("PRSI deducted to date (informational only, doesn't affect any calculation)"));
     ytdStore.Set(year, seeded);
     Console.WriteLine("Saved.");
+    return 0;
+}
+
+if (args.Contains("--summary"))
+{
+    var year = DateTime.Today.Year;
+    var ytd = ytdStore.Get(year);
+    Console.WriteLine($"=== Payroll, {year} year-to-date ===");
+    Console.WriteLine($"PAYE deducted:  {ytd.IncomeTaxDeductedToDate,10:C}");
+    Console.WriteLine($"USC deducted:   {ytd.UscDeductedToDate,10:C}");
+    Console.WriteLine($"PRSI deducted:  {ytd.PrsiDeductedToDate,10:C}");
+    Console.WriteLine($"Total:          {ytd.IncomeTaxDeductedToDate + ytd.UscDeductedToDate + ytd.PrsiDeductedToDate,10:C}");
+
+    var today = DateOnly.FromDateTime(DateTime.Today);
+    var currentPeriod = VatPeriod.Containing(today);
+    Console.WriteLine();
+    Console.WriteLine($"=== VAT, current period so far ({currentPeriod.Start:dd/MM/yyyy} - {today:dd/MM/yyyy}, period ends {currentPeriod.End:dd/MM/yyyy}) ===");
+
+    using var managerIoForSummary = new ManagerIoClient(new ManagerIoOptions
+    {
+        BaseUrl = managerIoConfig.BaseUrl,
+        ApiKey = managerIoConfig.ApiKey,
+        EmployeeKey = managerIoConfig.EmployeeKey,
+        BankAccountKey = managerIoConfig.BankAccountKey,
+        PaymentClearingAccountKey = managerIoConfig.PaymentClearingAccountKey,
+        PensionDeductionItemKey = managerIoConfig.PensionDeductionItemKey,
+        PayeDeductionItemKey = managerIoConfig.PayeDeductionItemKey,
+        UscDeductionItemKey = managerIoConfig.UscDeductionItemKey,
+        PrsiDeductionItemKey = managerIoConfig.PrsiDeductionItemKey,
+        BenefitInKindDeductionItemKeys = managerIoConfig.BenefitInKindDeductionItemKeys,
+        VatPayableAccountKey = managerIoConfig.VatPayableAccountKey,
+        VatRoundingAdjustmentAccountKey = managerIoConfig.VatRoundingAdjustmentAccountKey
+    });
+
+    try
+    {
+        var figures = await managerIoForSummary.GetVatFiguresAsync(currentPeriod.Start, today);
+        Console.WriteLine($"Sales VAT so far:     {figures.SalesVat,10:C}");
+        Console.WriteLine($"Purchases VAT so far: {figures.PurchasesVat,10:C}");
+        Console.WriteLine($"Net position so far:  {figures.SalesVat - figures.PurchasesVat,10:C} (running - period isn't closed, don't file this)");
+        if (figures.UnexpectedLines.Count > 0)
+            Console.WriteLine($"Note: {figures.UnexpectedLines.Count} entries from other transaction types found - not included above, see --vat-return closer to period end.");
+    }
+    catch (Exception ex) when (ex is HttpRequestException or ManagerIoClientException)
+    {
+        Console.WriteLine($"Could not reach Manager.io for the VAT position: {ex.Message}");
+    }
+
     return 0;
 }
 

@@ -15,6 +15,15 @@ public sealed record VatPeriod(DateOnly Start, DateOnly End)
         return new VatPeriod(previousPeriodStart, previousPeriodEnd);
     }
 
+    /// <summary>The bi-monthly period containing the given date - e.g. any day in September returns
+    /// Sep 1 - Oct 31, even though that period isn't over yet. Useful for an in-progress running total,
+    /// not for anything that should only ever look at a closed period (like --vat-return).</summary>
+    public static VatPeriod Containing(DateOnly date)
+    {
+        var start = PeriodStart(date);
+        return new VatPeriod(start, start.AddMonths(2).AddDays(-1));
+    }
+
     private static DateOnly PeriodStart(DateOnly date)
     {
         var startMonth = date.Month - ((date.Month - 1) % 2);

@@ -16,6 +16,10 @@ balance/company cash position). Edit anything that needs it, approve, type `SUBM
 Manager.io, and (if e-working days > 0) the ERR submission all happen automatically, and the local YTD
 store updates itself.
 
+`dotnet run -- --summary` is a quick, read-only "how are things looking" check any time — year-to-date
+PAYE/USC/PRSI, and the current VAT period's running position — without going anywhere near an actual
+submission.
+
 **If you skip a month** (no payslip run in a given calendar month), nothing breaks automatically, but
 make sure the pay date and period-number assumption still hold — `PeriodNumber` is just the pay date's
 month, so paying twice in one calendar month or skipping a month entirely will throw off the cumulative
@@ -158,12 +162,12 @@ pattern, so what ROS would actually do with it is unverified - don't rely on it.
 1. **The actual submission on ROS** - fix or delete it directly on the ROS website. This is the one
    that actually matters legally; everything else below is just keeping this app's own local records
    consistent with whatever ROS ends up with.
-2. **Local year-to-date store** (`dotnet run -- --seed-ytd`, or edit
-   `~/Library/Application Support/Payroll/year-to-date.json` directly) - set it to the *correct*
-   cumulative totals as of the fixed state, not the sum of every attempt. `Get`/`Set` always start from
-   whatever's in the file, so a wrong intermediate value just sits there silently until you overwrite
-   it - there's no automatic reconciliation against what ROS actually has (see `ARCHITECTURE.md` on why
-   the RPN can't tell you this either).
+2. **Local year-to-date store** (`dotnet run -- --seed-ytd`, or edit `year-to-date.json` directly - it's
+   at `Storage:DataDirectory` from config, or `~/Library/Application Support/Payroll` if that's not
+   set) - set it to the *correct* cumulative totals as of the fixed state, not the sum of every attempt.
+   `Get`/`Set` always start from whatever's in the file, so a wrong intermediate value just sits there
+   silently until you overwrite it - there's no automatic reconciliation against what ROS actually has
+   (see `ARCHITECTURE.md` on why the RPN can't tell you this either).
 3. **Manager.io's payslip/payment records** - if the wrong run also created a payslip and/or payment via
    this app, correct or delete those directly in Manager.io. Nothing here does this automatically, and
    if the wrong figures already fed into a VAT period (health insurance BIK, or anything downstream),

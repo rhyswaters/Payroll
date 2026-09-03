@@ -40,6 +40,7 @@ Diagnostic commands (none of these submit anything):
 dotnet run -- --list-rpns    # lists every RPN ROS holds for this employer/tax year
 dotnet run -- --show-ytd     # shows the locally tracked year-to-date totals
 dotnet run -- --seed-ytd     # overwrites the locally tracked year-to-date totals (interactive prompts)
+dotnet run -- --summary      # at-a-glance: YTD PAYE/USC/PRSI, plus the current (still-open) VAT period's running position
 ```
 
 Bi-monthly VAT3 return (no ROS integration — you upload the file yourself):
@@ -57,7 +58,12 @@ never handled). See `docs/ARCHITECTURE.md` for how the figures are sourced.
 ## Configuration
 
 Non-secret values live in `Payroll/appsettings.json` (employer registration number, PPSN, default
-monthly figures, Manager.io record keys, etc.).
+monthly figures, Manager.io record keys, etc.) — see `Payroll/appsettings.example.json` for the
+structure with placeholder values (the real file is gitignored, since it holds personal data).
+
+`Storage:DataDirectory` controls where the year-to-date store and generated VAT3 XML files live —
+default is `~/Library/Application Support/Payroll`, but pointing it at a synced/backed-up folder (this
+setup uses OneDrive, alongside the ROS cert) means that data survives a lost or dead machine.
 
 Secrets are never stored in `appsettings.json` or committed anywhere — they live in .NET user-secrets,
 local to this machine:

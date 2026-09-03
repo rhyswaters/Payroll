@@ -20,6 +20,17 @@ public class VatPeriodTests
         Assert.Equal(new DateOnly(startY, startM, startD), period.Start);
         Assert.Equal(new DateOnly(endY, endM, endD), period.End);
     }
+
+    [Theory]
+    [InlineData(2026, 9, 5, 2026, 9, 1, 2026, 10, 31)]
+    [InlineData(2026, 1, 1, 2026, 1, 1, 2026, 2, 28)]
+    public void Containing_ReturnsTheInProgressBlock(
+        int y, int m, int d, int startY, int startM, int startD, int endY, int endM, int endD)
+    {
+        var period = VatPeriod.Containing(new DateOnly(y, m, d));
+        Assert.Equal(new DateOnly(startY, startM, startD), period.Start);
+        Assert.Equal(new DateOnly(endY, endM, endD), period.End);
+    }
 }
 
 public class VatReturnTests
