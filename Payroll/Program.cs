@@ -137,22 +137,49 @@ async Task<int> RunOnce(string[] args)
             .Select(b => new BenefitInKindLine(b.Description, b.Amount, Enum.Parse<BikCategory>(b.Category)))
             .ToList();
 
+        // Budget "what if" overrides - start as copies of the real RPN's bands/credits so they can be
+        // edited freely (e.g. to try next January's announced Budget changes) without touching rpnDry
+        // itself. Purely in-memory: these variables live only for this --dry-run call and are gone as
+        // soon as it returns to the main menu, never written anywhere.
+        var payeBandsOverride = rpnDry.TaxRates.ToList();
+        var uscBandsOverride = rpnDry.UscRates.ToList();
+        var taxCreditsOverride = rpnDry.YearlyTaxCredits;
+
+        bool OverridesActive() =>
+            !payeBandsOverride.SequenceEqual(rpnDry.TaxRates) ||
+            !uscBandsOverride.SequenceEqual(rpnDry.UscRates) ||
+            taxCreditsOverride != rpnDry.YearlyTaxCredits;
+
         PayslipResult RecalculateDry()
         {
             var eworkingAllowance = eworkingDaysDry * employee.EworkingDailyRate;
             var inputs = PayrollInputs.MonthlyFor(
                 $"Payslip-{payDateDry:yyyy-MM}", employeeId, employee.FirstName, employee.FamilyName, payDateDry, grossDry, pensionDry,
                 eworkingAllowance, benefitsInKindDry);
-            return PayrollCalculator.Calculate(rpnDry, ytdStore.Get(year), PrsiSettings.ClassS, inputs);
+            var effectiveRpn = rpnDry with
+            {
+                TaxRates = payeBandsOverride,
+                UscRates = uscBandsOverride,
+                YearlyTaxCredits = taxCreditsOverride
+            };
+            // Deliberately keyed on payDateDry's year, not the "year" the RPN was fetched for: moving the
+            // pay date into a different year (e.g. to try January's figures once new bands/credits are
+            // known) should reset onto that year's own cumulative basis - real stored totals if any exist
+            // for it, otherwise YearToDateTotals.Zero - rather than carrying this year's pay/tax-to-date
+            // into the overridden bands and back-paying the whole year's worth of a credit change in one
+            // go, which is only correct for an actual same-year, mid-year RPN change.
+            return PayrollCalculator.Calculate(effectiveRpn, ytdStore.Get(payDateDry.Year), PrsiSettings.ClassS, inputs);
         }
 
         var dryResult = RecalculateDry();
 
         while (true)
         {
+            if (OverridesActive())
+                Console.WriteLine("*** Budget what-if overrides active - PAYE/USC bands and/or tax credits differ from the real RPN ***");
             PrintPayslip(dryResult);
             Console.WriteLine();
-            Console.Write("[G]ross pay, [P]ension, [E]working days, [B]enefits in kind, [D]ate, [Q]uit back to menu: ");
+            Console.Write("[G]ross pay, [P]ension, [E]working days, [B]enefits in kind, [D]ate, [T]ax band/credit overrides, [Q]uit back to menu: ");
             var choice = (Console.ReadLine() ?? "").Trim().ToUpperInvariant();
 
             if (choice == "Q")
@@ -182,7 +209,21 @@ async Task<int> RunOnce(string[] args)
             else if (choice == "D")
             {
                 Console.Write($"New pay date [{payDateDry:yyyy-MM-dd}]: ");
-                if (DateOnly.TryParse(Console.ReadLine(), out var d)) payDateDry = d;
+                if (DateOnly.TryParse(Console.ReadLine(), out var d))
+                {
+                    payDateDry = d;
+                    if (payDateDry.Year != year)
+                    {
+                        var basisForYear = ytdStore.Get(payDateDry.Year);
+                        Console.WriteLine(basisForYear == YearToDateTotals.Zero
+                            ? $"Note: {payDateDry.Year} has no year-to-date totals recorded, so this is calculated as period {payDateDry.Month} of a fresh year (nothing deducted yet) - good for previewing a new year's first payslip under overridden bands/credits, e.g. after a Budget."
+                            : $"Note: using {payDateDry.Year}'s recorded year-to-date totals as the cumulative basis for period {payDateDry.Month}.");
+                    }
+                }
+            }
+            else if (choice == "T")
+            {
+                EditTaxOverrides(payeBandsOverride, rpnDry.TaxRates, uscBandsOverride, rpnDry.UscRates, ref taxCreditsOverride, rpnDry.YearlyTaxCredits);
             }
 
             dryResult = RecalculateDry();
@@ -682,6 +723,108 @@ static void EditBenefitsInKind(List<BenefitInKindLine> list)
             list.RemoveAt(bikIndex);
         else if (decimal.TryParse(editInput, out var newAmount))
             list[bikIndex] = list[bikIndex] with { Amount = newAmount };
+    }
+}
+
+static void EditTaxOverrides(
+    List<RateBand> payeBands, IReadOnlyList<RateBand> originalPayeBands,
+    List<RateBand> uscBands, IReadOnlyList<RateBand> originalUscBands,
+    ref decimal yearlyTaxCredits, decimal originalYearlyTaxCredits)
+{
+    while (true)
+    {
+        Console.WriteLine();
+        Console.WriteLine("=== Budget what-if overrides (in-memory only - lost when you leave the dry run) ===");
+        Console.WriteLine("PAYE bands:");
+        PrintRateBands(payeBands);
+        Console.WriteLine("USC bands:");
+        PrintRateBands(uscBands);
+        Console.WriteLine($"Yearly tax credits: {yearlyTaxCredits:C} (RPN says {originalYearlyTaxCredits:C})");
+        Console.WriteLine();
+        Console.Write("[P]AYE bands, [U]SC bands, [C]redits, [R]eset to RPN values, [A]pply and back to dry run: ");
+        var choice = (Console.ReadLine() ?? "").Trim().ToUpperInvariant();
+
+        if (choice == "A") return;
+        if (choice == "R")
+        {
+            payeBands.Clear();
+            payeBands.AddRange(originalPayeBands);
+            uscBands.Clear();
+            uscBands.AddRange(originalUscBands);
+            yearlyTaxCredits = originalYearlyTaxCredits;
+            Console.WriteLine("Reset to the RPN's real values.");
+        }
+        else if (choice == "P")
+        {
+            EditRateBands(payeBands);
+        }
+        else if (choice == "U")
+        {
+            EditRateBands(uscBands);
+        }
+        else if (choice == "C")
+        {
+            Console.Write($"Adjust yearly tax credits by (e.g. +200 or -150) [currently {yearlyTaxCredits:0.00}]: ");
+            if (decimal.TryParse(Console.ReadLine(), out var delta)) yearlyTaxCredits += delta;
+        }
+    }
+}
+
+static void PrintRateBands(List<RateBand> bands)
+{
+    if (bands.Count == 0)
+    {
+        Console.WriteLine("  (none)");
+        return;
+    }
+    foreach (var b in bands.OrderBy(x => x.Index))
+        Console.WriteLine($"  [{b.Index}] {b.RatePercent}% up to {(b.YearlyCutOff.HasValue ? b.YearlyCutOff.Value.ToString("C") : "no limit (top band)")}");
+}
+
+static void EditRateBands(List<RateBand> bands)
+{
+    PrintRateBands(bands);
+    Console.Write("Enter index to edit, 'remove <index>', 'new', or blank to go back: ");
+    var input = (Console.ReadLine() ?? "").Trim();
+    if (input.Length == 0) return;
+
+    if (input.Equals("new", StringComparison.OrdinalIgnoreCase))
+    {
+        var nextIndex = bands.Count == 0 ? 0 : bands.Max(b => b.Index) + 1;
+        Console.Write("Rate %: ");
+        decimal.TryParse(Console.ReadLine(), out var rate);
+        Console.Write("Yearly cut-off (blank = no limit, i.e. this is the top band): ");
+        var cutoffInput = (Console.ReadLine() ?? "").Trim();
+        decimal? cutoff = decimal.TryParse(cutoffInput, out var c) ? c : null;
+        bands.Add(new RateBand(nextIndex, rate, cutoff));
+    }
+    else if (input.StartsWith("remove", StringComparison.OrdinalIgnoreCase))
+    {
+        var parts = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 2 && int.TryParse(parts[1], out var removeIndex))
+        {
+            var band = bands.FirstOrDefault(b => b.Index == removeIndex);
+            if (band is not null) bands.Remove(band);
+        }
+    }
+    else if (int.TryParse(input, out var index))
+    {
+        var pos = bands.FindIndex(b => b.Index == index);
+        if (pos >= 0)
+        {
+            var band = bands[pos];
+            Console.Write($"New rate % [{band.RatePercent}]: ");
+            var rateInput = (Console.ReadLine() ?? "").Trim();
+            var newRate = decimal.TryParse(rateInput, out var r) ? r : band.RatePercent;
+
+            Console.Write($"New yearly cut-off [{(band.YearlyCutOff?.ToString("0.00") ?? "no limit")}], or 'none' for no limit: ");
+            var cutoffInput = (Console.ReadLine() ?? "").Trim();
+            var newCutoff = band.YearlyCutOff;
+            if (cutoffInput.Equals("none", StringComparison.OrdinalIgnoreCase)) newCutoff = null;
+            else if (decimal.TryParse(cutoffInput, out var c)) newCutoff = c;
+
+            bands[pos] = band with { RatePercent = newRate, YearlyCutOff = newCutoff };
+        }
     }
 }
 
