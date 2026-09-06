@@ -311,6 +311,66 @@ async Task<int> RunOnce(string[] args)
         return 0;
     }
 
+    if (args.Contains("--expenses-report"))
+    {
+        Console.WriteLine("Expenses report for your accountant - exports business-expense Payments recorded in Manager.io as a CSV.");
+        Console.Write("Start date (yyyy-MM-dd): ");
+        if (!DateOnly.TryParse(Console.ReadLine(), out var expensesStart))
+        {
+            Console.WriteLine("Not a valid date.");
+            return 1;
+        }
+        Console.Write("End date (yyyy-MM-dd): ");
+        if (!DateOnly.TryParse(Console.ReadLine(), out var expensesEnd))
+        {
+            Console.WriteLine("Not a valid date.");
+            return 1;
+        }
+
+        using var managerIoForExpenses = new ManagerIoClient(new ManagerIoOptions
+        {
+            BaseUrl = managerIoConfig.BaseUrl,
+            ApiKey = managerIoConfig.ApiKey,
+            EmployeeKey = managerIoConfig.EmployeeKey,
+            BankAccountKey = managerIoConfig.BankAccountKey,
+            PaymentClearingAccountKey = managerIoConfig.PaymentClearingAccountKey,
+            PensionDeductionItemKey = managerIoConfig.PensionDeductionItemKey,
+            PayeDeductionItemKey = managerIoConfig.PayeDeductionItemKey,
+            UscDeductionItemKey = managerIoConfig.UscDeductionItemKey,
+            PrsiDeductionItemKey = managerIoConfig.PrsiDeductionItemKey,
+            BenefitInKindDeductionItemKeys = managerIoConfig.BenefitInKindDeductionItemKeys,
+            VatPayableAccountKey = managerIoConfig.VatPayableAccountKey,
+            VatRoundingAdjustmentAccountKey = managerIoConfig.VatRoundingAdjustmentAccountKey,
+            RevenuePayeeName = managerIoConfig.RevenuePayeeName
+        });
+
+        List<ExpenseLine> expenses;
+        try
+        {
+            expenses = await managerIoForExpenses.GetExpensesReportAsync(expensesStart, expensesEnd);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or ManagerIoClientException)
+        {
+            Console.WriteLine($"Could not pull expenses from Manager.io: {ex.Message}");
+            return 1;
+        }
+
+        if (expenses.Count == 0)
+        {
+            Console.WriteLine("No expense payments found in that period.");
+            return 0;
+        }
+
+        Console.WriteLine($"Found {expenses.Count} expense payment(s) totalling {expenses.Sum(e => e.Total):C}.");
+
+        var expensesDir = Path.Combine(dataDir, "expenses-reports");
+        Directory.CreateDirectory(expensesDir);
+        var csvPath = Path.Combine(expensesDir, $"Expenses-{expensesStart:yyyyMMdd}-{expensesEnd:yyyyMMdd}.csv");
+        File.WriteAllText(csvPath, ExpensesReportCsvWriter.Build(expenses));
+        Console.WriteLine($"CSV written to: {csvPath}");
+        return 0;
+    }
+
     if (args.Contains("--vat-history"))
     {
         var records = new VatFilingStore(Path.Combine(dataDir, "vat-filings.json")).GetAll();
@@ -843,6 +903,7 @@ static string[]? PromptForMenuChoice()
         Console.WriteLine("7. VAT filing history");
         Console.WriteLine("8. Mark a VAT period as filed manually");
         Console.WriteLine("9. List RPNs held by ROS");
+        Console.WriteLine("10. Export expenses report (CSV) - for your accountant's year-end accounts");
         Console.WriteLine("0. Quit");
         Console.Write("Choose an option: ");
 
@@ -857,6 +918,7 @@ static string[]? PromptForMenuChoice()
             case "7": return ["--vat-history"];
             case "8": return ["--vat-mark-filed"];
             case "9": return ["--list-rpns"];
+            case "10": return ["--expenses-report"];
             case "0": case "q": case "Q": return null;
             default: Console.WriteLine("Not a valid option, try again."); break;
         }

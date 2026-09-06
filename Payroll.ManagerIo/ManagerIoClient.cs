@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Payroll.Core;
 using Payroll.ManagerIo.Dto;
 
@@ -143,6 +145,125 @@ public sealed class ManagerIoClient : IDisposable
 
         return new VatPayableBalance(salesLines.Sum(l => l.Amount) - purchaseLines.Sum(l => l.Amount), unexpectedLines);
     }
+
+    private static readonly Regex TaxRatePercentInName = new(@"(\d+(?:\.\d+)?)\s*%", RegexOptions.Compiled);
+
+    /// <summary>Pulls every genuine business-expense Payment in a period for the accountant's year-end
+    /// CSV - see <see cref="ExpensesReportCsvWriter"/>. Payroll's own Salary payment and a VAT settlement
+    /// to Revenue both get excluded, neither is a business expense (Salary is reported via the payroll
+    /// submission, VAT settlements via the VAT3 return) - see <see cref="ReadExpenseFinancials"/> for how
+    /// Salary is told apart (its "payee" isn't reliable - observed null on some, the employee's own name
+    /// on others). Subtotal and Vat are backed out of each remaining payment's own lines: a line's Amount
+    /// is VAT-inclusive, and if it carries a TaxCode, that code's live rate (read from Manager.io's own
+    /// tax-codes list, not hardcoded here) says how much of it is VAT. A future rate change only affects
+    /// payments recorded against a new tax code, so this stays correct for old payments as long as
+    /// Manager.io tax codes are never edited in place to change their rate.</summary>
+    public async Task<List<ExpenseLine>> GetExpensesReportAsync(DateOnly start, DateOnly end, CancellationToken ct = default)
+    {
+        var taxRatePercentByCode = await FetchTaxCodeRates(ct);
+
+        var results = new List<ExpenseLine>();
+        var skip = 0;
+        const int pageSize = 200;
+
+        while (true)
+        {
+            using var response = await _http.GetAsync($"payments?pageSize={pageSize}&skip={skip}", ct);
+            response.EnsureSuccessStatusCode();
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+            var payments = doc.RootElement.GetProperty("payments");
+
+            var count = 0;
+            foreach (var payment in payments.EnumerateArray())
+            {
+                count++;
+
+                if (!payment.TryGetProperty("payee", out var payeeProp) || payeeProp.GetString() is not { Length: > 0 } payee) continue;
+                if (string.Equals(payee, _options.RevenuePayeeName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                if (!payment.TryGetProperty("date", out var dateProp) || dateProp.GetString() is not { } dateString) continue;
+                var date = DateOnly.Parse(dateString);
+                if (date < start || date > end) continue;
+
+                if (!payment.TryGetProperty("key", out var keyProp)) continue;
+                var description = payment.TryGetProperty("description", out var descProp) ? descProp.GetString() ?? "" : "";
+
+                var financials = await ReadExpenseFinancials(keyProp.GetString()!, taxRatePercentByCode, ct);
+                if (financials is not { } f) continue;
+                results.Add(new ExpenseLine(date, payee, f.Subtotal + f.Vat, f.Subtotal, f.Vat, f.Subtotal + f.Vat, description));
+            }
+
+            if (count < pageSize) break;
+            skip += pageSize;
+        }
+
+        return results.OrderBy(r => r.IssueDate).ToList();
+    }
+
+    /// <summary>Reads one payment's Subtotal/Vat split, or null if it's actually payroll's Salary payment
+    /// in disguise. Every Salary payment this app has ever created posts its one line straight to the
+    /// payroll clearing account (<see cref="ManagerIoOptions.PaymentClearingAccountKey"/>) against an
+    /// Employee - unlike the "payee" list field (observed inconsistent: null on some Salary payments, the
+    /// employee's own name on others, so not safe to filter on alone), which account a line posts to is
+    /// structural and can't vary, so it's the one reliable signal to exclude it here.</summary>
+    private async Task<(decimal Subtotal, decimal Vat)?> ReadExpenseFinancials(
+        string paymentKey, IReadOnlyDictionary<string, decimal> taxRatePercentByCode, CancellationToken ct)
+    {
+        using var formResponse = await _http.GetAsync($"payment-form/{paymentKey}", ct);
+        formResponse.EnsureSuccessStatusCode();
+        using var formDoc = JsonDocument.Parse(await formResponse.Content.ReadAsStreamAsync(ct));
+
+        var vat = 0m;
+        var gross = 0m;
+        foreach (var line in formDoc.RootElement.GetProperty("Lines").EnumerateArray())
+        {
+            if (line.TryGetProperty("Account", out var accountProp) && accountProp.GetString() == _options.PaymentClearingAccountKey)
+                return null;
+
+            if (!line.TryGetProperty("Amount", out var amountProp)) continue;
+            var lineAmount = amountProp.GetDecimal();
+            gross += lineAmount;
+
+            if (!line.TryGetProperty("TaxCode", out var taxCodeProp) || taxCodeProp.GetString() is not { } taxCode) continue;
+
+            if (!taxRatePercentByCode.TryGetValue(taxCode, out var ratePercent))
+                throw new ManagerIoClientException(
+                    $"Payment {paymentKey} uses tax code {taxCode}, which isn't in Manager.io's current tax-codes list - it may have been deleted.");
+
+            // lineAmount is VAT-inclusive, so the VAT portion has to be backed out rather than added on top.
+            vat += lineAmount - lineAmount / (1 + ratePercent / 100m);
+        }
+
+        var roundedVat = Round(vat);
+        return (Round(gross) - roundedVat, roundedVat);
+    }
+
+    /// <summary>Maps each tax code's key to its rate, parsed from its name (e.g. "VAT 23%" -> 23) since
+    /// Manager.io's API exposes no separate numeric rate field. Deliberately fetched fresh on every call
+    /// rather than cached anywhere in this app - Manager.io's tax-codes list is the one source of truth
+    /// for current rates, the same way PrsiSettings is for PRSI, so a Budget rate change takes effect the
+    /// moment a new code for it exists there, with no code change here.</summary>
+    private async Task<Dictionary<string, decimal>> FetchTaxCodeRates(CancellationToken ct)
+    {
+        using var response = await _http.GetAsync("tax-codes?pageSize=200", ct);
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+
+        var rates = new Dictionary<string, decimal>();
+        foreach (var code in doc.RootElement.GetProperty("taxCodes").EnumerateArray())
+        {
+            if (!code.TryGetProperty("key", out var keyProp) || !code.TryGetProperty("name", out var nameProp)) continue;
+            var name = nameProp.GetString() ?? "";
+            var match = TaxRatePercentInName.Match(name);
+            if (!match.Success)
+                throw new ManagerIoClientException(
+                    $"Manager.io tax code '{name}' doesn't have a rate this app can parse (expected e.g. \"VAT 23%\") - rename it or fix ManagerIoClient.FetchTaxCodeRates.");
+            rates[keyProp.GetString()!] = decimal.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+        }
+        return rates;
+    }
+
+    private static decimal Round(decimal value) => Math.Round(value, 2, MidpointRounding.AwayFromZero);
 
     /// <summary>Finds "VAT Payable" lines belonging to payments made to Revenue (payee/contact matching
     /// <see cref="ManagerIoOptions.RevenuePayeeName"/>) - across all time, not just the period being asked
