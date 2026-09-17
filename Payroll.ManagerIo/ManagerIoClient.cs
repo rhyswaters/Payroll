@@ -157,7 +157,9 @@ public sealed class ManagerIoClient : IDisposable
     /// is VAT-inclusive, and if it carries a TaxCode, that code's live rate (read from Manager.io's own
     /// tax-codes list, not hardcoded here) says how much of it is VAT. A future rate change only affects
     /// payments recorded against a new tax code, so this stays correct for old payments as long as
-    /// Manager.io tax codes are never edited in place to change their rate.</summary>
+    /// Manager.io tax codes are never edited in place to change their rate. Also includes any Inter Account
+    /// Transfer touching the current account in the period (e.g. money moved to/from a deposit account) -
+    /// see <see cref="GetCurrentAccountTransfersAsync"/>.</summary>
     public async Task<List<ExpenseLine>> GetExpensesReportAsync(DateOnly start, DateOnly end, CancellationToken ct = default)
     {
         var taxRatePercentByCode = await FetchTaxCodeRates(ct);
@@ -197,7 +199,74 @@ public sealed class ManagerIoClient : IDisposable
             skip += pageSize;
         }
 
+        results.AddRange(await GetCurrentAccountTransfersAsync(start, end, ct));
+
         return results.OrderBy(r => r.IssueDate).ToList();
+    }
+
+    /// <summary>Pulls Inter Account Transfers with the current account (<see cref="ManagerIoOptions.BankAccountKey"/>)
+    /// on one side, so a transfer to/from another account (e.g. the deposit account) shows up on the same one-page
+    /// CSV as every other movement of cash into or out of the current account. Transfers are a distinct Manager.io
+    /// transaction type from Payments: the list endpoint ("inter-account-transfers") only names the two accounts by
+    /// their display name, so each transfer needs a follow-up "inter-account-transfer-form/{key}" call to read
+    /// PaidFrom/ReceivedIn by key instead - the reliable way to tell which side is the current account, since a
+    /// display name can be renamed in Manager.io without this code changing (the same reasoning
+    /// <see cref="ReadExpenseFinancials"/> uses for telling Salary apart by account key, not by name). A transfer
+    /// out of the current account is recorded as a positive amount, same sign as every other expense line; a
+    /// transfer back in is negative, so the CSV's running total reads as net cash impact on the current account. A
+    /// transfer with neither side on the current account (e.g. between two other accounts) is skipped - not
+    /// relevant to this report. The other account's own interest income/compounding never appears here, since it
+    /// never touches the current account and so is never an Inter Account Transfer in the first place.</summary>
+    private async Task<List<ExpenseLine>> GetCurrentAccountTransfersAsync(DateOnly start, DateOnly end, CancellationToken ct)
+    {
+        var results = new List<ExpenseLine>();
+        var skip = 0;
+        const int pageSize = 200;
+
+        while (true)
+        {
+            using var response = await _http.GetAsync($"inter-account-transfers?pageSize={pageSize}&skip={skip}", ct);
+            response.EnsureSuccessStatusCode();
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+            var transfers = doc.RootElement.GetProperty("interAccountTransfers");
+
+            var count = 0;
+            foreach (var transfer in transfers.EnumerateArray())
+            {
+                count++;
+
+                if (!transfer.TryGetProperty("date", out var dateProp) || dateProp.GetString() is not { } dateString) continue;
+                var date = DateOnly.Parse(dateString);
+                if (date < start || date > end) continue;
+
+                if (!transfer.TryGetProperty("key", out var keyProp)) continue;
+                var description = transfer.TryGetProperty("description", out var descProp) ? descProp.GetString() ?? "" : "";
+                var paidFromName = transfer.TryGetProperty("paidFrom", out var paidFromNameProp) ? paidFromNameProp.GetString() ?? "" : "";
+                var receivedInName = transfer.TryGetProperty("receivedIn", out var receivedInNameProp) ? receivedInNameProp.GetString() ?? "" : "";
+                if (!transfer.TryGetProperty("amount", out var amountProp) || !amountProp.TryGetProperty("value", out var valueProp)) continue;
+                var amount = valueProp.GetDecimal();
+
+                using var formResponse = await _http.GetAsync($"inter-account-transfer-form/{keyProp.GetString()}", ct);
+                formResponse.EnsureSuccessStatusCode();
+                using var formDoc = JsonDocument.Parse(await formResponse.Content.ReadAsStreamAsync(ct));
+                var paidFromKey = formDoc.RootElement.GetProperty("PaidFrom").GetString();
+                var receivedInKey = formDoc.RootElement.GetProperty("ReceivedIn").GetString();
+
+                string counterparty;
+                decimal signedAmount;
+                if (paidFromKey == _options.BankAccountKey) { counterparty = receivedInName; signedAmount = amount; }
+                else if (receivedInKey == _options.BankAccountKey) { counterparty = paidFromName; signedAmount = -amount; }
+                else continue;
+
+                results.Add(new ExpenseLine(
+                    date, counterparty, signedAmount, signedAmount, 0m, signedAmount, $"Inter-account transfer: {description}"));
+            }
+
+            if (count < pageSize) break;
+            skip += pageSize;
+        }
+
+        return results;
     }
 
     /// <summary>Reads one payment's Subtotal/Vat split, or null if it's actually payroll's Salary payment
