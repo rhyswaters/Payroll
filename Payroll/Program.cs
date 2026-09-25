@@ -105,7 +105,7 @@ async Task<int> RunOnce(string[] args)
         var all = await ros.ListAllRpnsAsync(year);
         Console.WriteLine($"ROS holds {all.Count} RPN(s) for employer {employer.RegistrationNumber}, tax year {year}:");
         foreach (var r in all)
-            Console.WriteLine($"  PPSN={r.EmployeeId.EmployeePpsn} EmploymentID={r.EmployeeId.EmploymentId} RPN={r.RpnNumber} YearlyCredits={r.YearlyTaxCredits:C}");
+            Console.WriteLine($"  PPSN={r.EmployeeId.EmployeePpsn} EmploymentID={r.EmployeeId.EmploymentId} RPN={r.RpnNumber} issued {r.RpnIssueDate:yyyy-MM-dd} YearlyCredits={r.YearlyTaxCredits:C}");
         return 0;
     }
 
