@@ -189,6 +189,7 @@ public sealed class RosClient : IDisposable
         Name = new NameDto { FirstName = p.Inputs.FirstName, FamilyName = p.Inputs.FamilyName },
         PayFrequency = "MONTHLY",
         NumberOfPayPeriods = 12,
+        PayPeriod = p.Inputs.PeriodNumber,
         RpnNumber = p.RpnNumber,
         ExclusionOrder = false,
         PayDate = p.Inputs.PayDate.ToString("yyyy-MM-dd"),

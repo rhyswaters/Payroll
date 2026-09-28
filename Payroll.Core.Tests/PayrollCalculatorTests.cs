@@ -124,4 +124,18 @@ public class PayrollCalculatorTests
         }
         return Math.Max(0m, tax - yearlyCredits);
     }
+
+    [Theory]
+    // €500/week threshold = €2,166.67/month on a 52-week year.
+    [InlineData(2166.66, "S0")]
+    [InlineData(2166.67, "S1")]
+    [InlineData(5833.33, "S1")]
+    public void ClassS_ReportsSubclassFromWeeklyEquivalentPay(decimal gross, string expectedClass)
+    {
+        var inputs = PayrollInputs.MonthlyFor("LI-1", Employee, "Rhys", "Waters", new DateOnly(2026, 9, 28), gross, 0m);
+
+        var result = PayrollCalculator.Calculate(FreshYearRpn(), FreshYear, PrsiClassS, inputs);
+
+        Assert.Equal(expectedClass, result.PrsiClass);
+    }
 }

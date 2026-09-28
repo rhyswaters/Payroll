@@ -15,6 +15,13 @@ public sealed class PrsiSettings
     public required string PrsiClass { get; init; }
     public required IReadOnlyList<PrsiRatePeriod> RateHistory { get; init; }
 
+    /// <summary>ROS wants class + subclass (e.g. "S1"), not the bare class - a bare "S" is rejected with
+    /// error 2037 "Invalid PRSIClass - Subclass". Subclass depends on weekly-equivalent reckonable pay.</summary>
+    public required Func<decimal, string> SubclassForWeeklyPay { get; init; }
+
+    public string ReportedClassFor(decimal payForPrsiThisPeriod, int periodsInYear) =>
+        SubclassForWeeklyPay(payForPrsiThisPeriod * periodsInYear / 52m);
+
     /// <summary>The most recent period on or before <paramref name="payDate"/>. Deliberately does not
     /// fall back to an earlier confirmed rate once a later, not-yet-confirmed period has started - a
     /// placeholder entry with a null rate (see <see cref="ClassS"/>) forces this to throw rather than
@@ -47,6 +54,9 @@ public sealed class PrsiSettings
     public static PrsiSettings ClassS => new()
     {
         PrsiClass = "S",
+        // S0 = weekly earnings up to €500, S1 = over €500. (S2 - over €500 for medical card holders and
+        // certain social welfare recipients - isn't modelled.)
+        SubclassForWeeklyPay = weeklyPay => weeklyPay <= 500m ? "S0" : "S1",
         RateHistory =
         [
             new PrsiRatePeriod(new DateOnly(2025, 10, 1), 4.2m, 0m),

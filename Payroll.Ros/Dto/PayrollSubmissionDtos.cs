@@ -15,6 +15,7 @@ public sealed class PayslipSubmissionDto
     [JsonPropertyName("name")] public required NameDto Name { get; init; }
     [JsonPropertyName("payFrequency")] public required string PayFrequency { get; init; }
     [JsonPropertyName("numberOfPayPeriods")] public required int NumberOfPayPeriods { get; init; }
+    [JsonPropertyName("payPeriod")] public required int PayPeriod { get; init; }
     [JsonPropertyName("rpnNumber")] public required string RpnNumber { get; init; }
     [JsonPropertyName("exclusionOrder")] public bool ExclusionOrder { get; init; }
     [JsonPropertyName("payDate")] public required string PayDate { get; init; }

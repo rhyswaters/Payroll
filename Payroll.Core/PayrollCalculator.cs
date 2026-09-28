@@ -50,7 +50,7 @@ public static class PayrollCalculator
             inputs, rpn.RpnNumber,
             Round(payForIncomeTax), incomeTax,
             Round(payForUsc), usc,
-            prsi.PrsiClass, prsiRatePercent, Round(payForEmployeePrsi), employeePrsi,
+            prsi.ReportedClassFor(payForEmployeePrsi, inputs.PeriodsInYear), prsiRatePercent, Round(payForEmployeePrsi), employeePrsi,
             Round(netPay));
     }
 

@@ -623,6 +623,17 @@ async Task<int> RunOnce(string[] args)
         return 0;
     }
 
+    // For when ROS rejected a payslip after the original run had already recorded it in Manager.io (and
+    // sent the ERR report): submits to ROS and updates YTD only. Roll YTD back to before this payslip first.
+    var resubmitOnly = args.Contains("--resubmit-payslip");
+    if (resubmitOnly)
+    {
+        Console.WriteLine("RESUBMIT MODE: submits the payslip to ROS and updates YTD only - Manager.io and ERR are skipped.");
+        Console.WriteLine("The YTD shown below must be the totals BEFORE this payslip. If the rejected run already added it,");
+        Console.WriteLine("quit and fix that with 'Seed/correct year-to-date totals' first.");
+        Console.WriteLine();
+    }
+
     // Tax year is derived from the pay date, not "today" - if payroll ever runs a few days late for a
     // payslip actually dated in the previous year, this keeps the RPN lookup and YTD tracking correct.
     var payDate = DateOnly.FromDateTime(DateTime.Today);
@@ -741,7 +752,66 @@ async Task<int> RunOnce(string[] args)
         return 1;
     }
 
+    // An acknowledgement only means ROS received it - payslips are validated asynchronously, and an invalid
+    // one is silently not saved even when the submission ends up COMPLETED. Wait for the outcome before
+    // recording anything locally or in Manager.io.
+    Console.WriteLine("Waiting for ROS to process the submission...");
+    CheckPayrollSubmissionResponseDto? outcome = null;
+    for (var attempt = 0; attempt < 24; attempt++)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        try
+        {
+            outcome = await ros.CheckPayrollSubmissionAsync(taxYear.ToString(), payrollRunReference, submissionId);
+        }
+        catch (RosClientException)
+        {
+            continue; // not always queryable immediately after acknowledgement
+        }
+        if (!outcome.Status.Equals("PENDING", StringComparison.OrdinalIgnoreCase)
+            && !outcome.Status.Equals("NOT_ACKNOWLEDGED", StringComparison.OrdinalIgnoreCase)) break;
+    }
+
+    var invalidPayslips = outcome?.InvalidPayslips ?? [];
+    if (invalidPayslips.Count > 0)
+    {
+        Console.WriteLine("ROS REJECTED the payslip - it was not saved. Nothing has been recorded locally or in Manager.io.");
+        foreach (var p in invalidPayslips)
+        foreach (var e in p.Errors)
+            Console.WriteLine($"  {p.LineItemId}: {e.Code} {e.Path}: {e.Description}");
+        return 1;
+    }
+    if (outcome is null || outcome.Status.Equals("PENDING", StringComparison.OrdinalIgnoreCase)
+                        || outcome.Status.Equals("NOT_ACKNOWLEDGED", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.WriteLine($"ROS hasn't finished processing yet (status: {outcome?.Status ?? "unknown"}).");
+        Console.Write("Record it locally and in Manager.io anyway? Check it later with 'Check payroll submission status'. [y/N]: ");
+        if (!(Console.ReadLine() ?? "").Trim().Equals("y", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine("Stopped - nothing recorded locally or in Manager.io. Check it later with 'Check payroll submission status':");
+            Console.WriteLine("  - if ROS rejected it: fix the problem and run payroll again.");
+            Console.WriteLine("  - if ROS accepted it: update YTD with 'Seed/correct year-to-date totals' and record the payslip in Manager.io by hand.");
+            return 1;
+        }
+    }
+    else
+    {
+        Console.WriteLine($"ROS processed the submission: {outcome.Status}");
+        foreach (var w in outcome.PayslipWarnings ?? [])
+        foreach (var e in w.Warnings)
+            Console.WriteLine($"  Warning on {w.LineItemId}: {e.Code} {e.Path}: {e.Description}");
+    }
+
     ytdStore.Set(taxYear, ytdStore.Get(taxYear).Add(result));
+
+    if (resubmitOnly)
+    {
+        Console.WriteLine("Year-to-date totals updated. Resubmit mode: Manager.io and the ERR report were left alone");
+        Console.WriteLine("(they were already recorded by the original run).");
+        Console.WriteLine();
+        Console.WriteLine("Done.");
+        return 0;
+    }
 
     Console.WriteLine("Recording payslip and payment in Manager.io...");
 
@@ -966,6 +1036,7 @@ static string[]? PromptForMenuChoice()
         Console.WriteLine("9. List RPNs held by ROS");
         Console.WriteLine("10. Export expenses report (CSV) - for your accountant's year-end accounts");
         Console.WriteLine("11. Check payroll submission status on ROS");
+        Console.WriteLine("12. Resubmit a payslip ROS rejected - ROS + YTD only, skips Manager.io/ERR");
         Console.WriteLine("0. Quit");
         Console.Write("Choose an option: ");
 
@@ -982,6 +1053,7 @@ static string[]? PromptForMenuChoice()
             case "9": return ["--list-rpns"];
             case "10": return ["--expenses-report"];
             case "11": return ["--check-submission"];
+            case "12": return ["--resubmit-payslip"];
             case "0": case "q": case "Q": return null;
             default: Console.WriteLine("Not a valid option, try again."); break;
         }

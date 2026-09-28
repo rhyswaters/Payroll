@@ -38,7 +38,10 @@ Running `dotnet run` in `Payroll/` (or picking "Run payroll" from the menu) does
    PAYE/USC/PRSI breakdown and net pay.
 5. Review loop: print the payslip, let you edit any input, recalculate, repeat until you approve or quit.
 6. On approve (with an extra typed `SUBMIT` confirmation if pointed at Production):
-   a. `RosClient.CreatePayrollSubmissionAsync` — the actual submission to Revenue.
+   a. `RosClient.CreatePayrollSubmissionAsync` — the actual submission to Revenue. The acknowledgement
+      only means ROS received it, so the app then polls `CheckPayrollSubmissionAsync` (up to ~2 minutes)
+      and stops if any payslip comes back invalid. ROS validates payslips asynchronously and silently
+      doesn't save invalid ones, even when the submission status is `COMPLETED`.
    b. Update the local YTD store with this payslip's figures.
    c. `ManagerIoClient.CreatePayslipAsync` + `CreatePaymentAsync` — record it in the books.
    d. If e-working days > 0, `RosClient.SubmitRemoteWorkingAllowanceAsync` — a separate Enhanced
