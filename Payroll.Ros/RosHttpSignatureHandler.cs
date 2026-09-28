@@ -30,6 +30,12 @@ public sealed class RosHttpSignatureHandler : DelegatingHandler
 
         if (request.Content is not null)
         {
+            // ROS rejects the signature (401 "Signature does not match signed content") when Content-Type is
+            // .NET's default "application/json; charset=utf-8" - it only accepts "application/json" or
+            // "application/json;charset=UTF-8". Drop the charset; the body is UTF-8 regardless.
+            if (request.Content.Headers.ContentType is { MediaType: "application/json" } contentType)
+                contentType.CharSet = null;
+
             var bodyBytes = await request.Content.ReadAsByteArrayAsync(cancellationToken);
             var digest = Convert.ToBase64String(SHA512.HashData(bodyBytes));
             request.Headers.TryAddWithoutValidation("Digest", digest);

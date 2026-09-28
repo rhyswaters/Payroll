@@ -195,6 +195,9 @@ certificate** (a `.p12` file), per the `draft-cavage-http-signatures-08` spec:
 - `algorithm` = `rsa-sha512`.
 - Signed headers: `(request-target)`, `host`, `date`, and (for POST) `digest` (SHA-512 hash of the body,
   base64, no algorithm prefix).
+- POST `Content-Type` must be exactly `application/json` (or `application/json;charset=UTF-8`). .NET's
+  default `application/json; charset=utf-8` gets a 401 "Signature does not match signed content" even
+  though content-type isn't a signed header, so the handler strips the charset.
 - Implementation: `Payroll.Ros/RosHttpSignatureHandler.cs`, a `DelegatingHandler` wired into the
   `RosClient`'s `HttpClient`.
 
