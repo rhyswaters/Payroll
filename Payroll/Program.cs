@@ -3,6 +3,7 @@ using Payroll;
 using Payroll.Core;
 using Payroll.ManagerIo;
 using Payroll.Ros;
+using Payroll.Ros.Dto;
 
 // No command-line flags given - most launches are Rider's Debug button or double-clicking a compiled
 // exe, neither of which lets you pass arguments, so show an interactive menu and keep looping back to
@@ -107,6 +108,66 @@ async Task<int> RunOnce(string[] args)
         foreach (var r in all)
             Console.WriteLine($"  PPSN={r.EmployeeId.EmployeePpsn} EmploymentID={r.EmployeeId.EmploymentId} RPN={r.RpnNumber} issued {r.RpnIssueDate:yyyy-MM-dd} YearlyCredits={r.YearlyTaxCredits:C}");
         return 0;
+    }
+
+    if (args.Contains("--check-submission"))
+    {
+        var year = DateTime.Today.Year;
+        Console.Write($"Month to check (1-12) [{DateTime.Today.Month}]: ");
+        var monthInput = (Console.ReadLine() ?? "").Trim();
+        var month = monthInput == "" ? DateTime.Today.Month : int.TryParse(monthInput, out var m) && m is >= 1 and <= 12 ? m : 0;
+        if (month == 0)
+        {
+            Console.WriteLine("Not a valid month.");
+            return 1;
+        }
+
+        // Must match the run reference the Run payroll option submits under.
+        var runReference = $"PayrollRun-{year}-{month:00}";
+        CheckPayrollRunResponseDto run;
+        try
+        {
+            run = await ros.CheckPayrollRunAsync(year.ToString(), runReference);
+        }
+        catch (RosClientException ex)
+        {
+            Console.WriteLine($"Couldn't check {runReference}: {ex.Message}");
+            return 1;
+        }
+
+        Console.WriteLine($"{runReference}: {run.Status}");
+        if (run.TaxOnIncome is not null)
+            Console.WriteLine($"  Run totals - PAYE {run.TaxOnIncome:C}, PRSI {run.Prsi:C}, USC {run.Usc:C}, LPT {run.Lpt:C}");
+        foreach (var e in run.ValidationErrors ?? [])
+            Console.WriteLine($"  ERROR {e.Code} {e.Path}: {e.Description}");
+
+        var anyInvalid = false;
+        foreach (var s in run.Submissions)
+        {
+            var detail = await ros.CheckPayrollSubmissionAsync(year.ToString(), runReference, s.SubmissionId);
+            Console.WriteLine();
+            Console.WriteLine($"  {detail.SubmissionId}: {detail.Status}");
+            if (detail.SubmissionSummary is { } sum)
+                Console.WriteLine($"    {sum.PayslipCount} payslip(s) - PAYE {sum.TaxOnIncome:C}, PRSI {sum.Prsi:C}, USC {sum.Usc:C}");
+            foreach (var e in detail.ValidationErrors ?? [])
+                Console.WriteLine($"    ERROR {e.Code} {e.Path}: {e.Description}");
+            foreach (var p in detail.InvalidPayslips ?? [])
+            {
+                anyInvalid = true;
+                Console.WriteLine($"    INVALID PAYSLIP {p.LineItemId} (not saved by ROS):");
+                foreach (var e in p.Errors)
+                    Console.WriteLine($"      {e.Code} {e.Path}: {e.Description}");
+            }
+            foreach (var w in detail.PayslipWarnings ?? [])
+            foreach (var e in w.Warnings)
+                Console.WriteLine($"    Warning on {w.LineItemId}: {e.Code} {e.Path}: {e.Description}");
+        }
+
+        if (run.Submissions.Count == 0)
+            Console.WriteLine("  No submissions found under this run.");
+        else if (anyInvalid)
+            Console.WriteLine("\nROS rejected at least one payslip - it won't count toward this period's liability until corrected.");
+        return anyInvalid ? 1 : 0;
     }
 
     if (args.Contains("--dry-run"))
@@ -904,6 +965,7 @@ static string[]? PromptForMenuChoice()
         Console.WriteLine("8. Mark a VAT period as filed manually");
         Console.WriteLine("9. List RPNs held by ROS");
         Console.WriteLine("10. Export expenses report (CSV) - for your accountant's year-end accounts");
+        Console.WriteLine("11. Check payroll submission status on ROS");
         Console.WriteLine("0. Quit");
         Console.Write("Choose an option: ");
 
@@ -919,6 +981,7 @@ static string[]? PromptForMenuChoice()
             case "8": return ["--vat-mark-filed"];
             case "9": return ["--list-rpns"];
             case "10": return ["--expenses-report"];
+            case "11": return ["--check-submission"];
             case "0": case "q": case "Q": return null;
             default: Console.WriteLine("Not a valid option, try again."); break;
         }

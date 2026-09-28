@@ -57,6 +57,8 @@ Diagnostic commands (none of these submit anything):
 
 ```
 dotnet run -- --list-rpns    # lists every RPN ROS holds for this employer/tax year
+dotnet run -- --check-submission  # asks for a month, then shows ROS's processing status for that month's payroll run,
+                                  # including any payslips ROS rejected (those aren't saved even when the status is COMPLETED)
 dotnet run -- --show-ytd     # shows the locally tracked year-to-date totals
 dotnet run -- --seed-ytd     # overwrites the locally tracked year-to-date totals (interactive prompts)
 dotnet run -- --summary      # at-a-glance: YTD PAYE/USC/PRSI, plus the current VAT Payable balance (same figure Manager.io's own Summary -> Liabilities shows)

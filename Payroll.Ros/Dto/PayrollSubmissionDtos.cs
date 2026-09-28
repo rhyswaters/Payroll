@@ -70,15 +70,36 @@ public sealed class CheckPayrollSubmissionResponseDto
     [JsonPropertyName("submissionID")] public required string SubmissionId { get; init; }
     [JsonPropertyName("status")] public required string Status { get; init; }
     [JsonPropertyName("submissionSummary")] public SubmissionSummaryDto? SubmissionSummary { get; init; }
-    [JsonPropertyName("errors")] public List<ValidationErrorDto>? Errors { get; init; }
+
+    /// <summary>Payslips ROS rejected - these were NOT saved, even if the submission status is COMPLETED.</summary>
+    [JsonPropertyName("invalidPayslips")] public List<InvalidPayslipDto>? InvalidPayslips { get; init; }
+
+    /// <summary>Warnings on payslips ROS did save.</summary>
+    [JsonPropertyName("payslipWarnings")] public List<PayslipWarningDto>? PayslipWarnings { get; init; }
+
+    [JsonPropertyName("validationErrors")] public List<ValidationErrorDto>? ValidationErrors { get; init; }
 }
 
+public sealed class InvalidPayslipDto
+{
+    [JsonPropertyName("lineItemID")] public string? LineItemId { get; init; }
+    [JsonPropertyName("errors")] public List<ValidationErrorDto> Errors { get; init; } = [];
+}
+
+public sealed class PayslipWarningDto
+{
+    [JsonPropertyName("lineItemID")] public string? LineItemId { get; init; }
+    [JsonPropertyName("warnings")] public List<ValidationErrorDto> Warnings { get; init; } = [];
+}
+
+/// <summary>Totals are only included once every submission in the run has been processed.</summary>
 public sealed class CheckPayrollRunResponseDto
 {
     [JsonPropertyName("status")] public required string Status { get; init; }
-    [JsonPropertyName("taxOnIncome")] public decimal TaxOnIncome { get; init; }
-    [JsonPropertyName("prsi")] public decimal Prsi { get; init; }
-    [JsonPropertyName("usc")] public decimal Usc { get; init; }
-    [JsonPropertyName("lpt")] public decimal Lpt { get; init; }
+    [JsonPropertyName("taxOnIncome")] public decimal? TaxOnIncome { get; init; }
+    [JsonPropertyName("prsi")] public decimal? Prsi { get; init; }
+    [JsonPropertyName("usc")] public decimal? Usc { get; init; }
+    [JsonPropertyName("lpt")] public decimal? Lpt { get; init; }
     [JsonPropertyName("submissions")] public List<CheckPayrollSubmissionResponseDto> Submissions { get; init; } = [];
+    [JsonPropertyName("validationErrors")] public List<ValidationErrorDto>? ValidationErrors { get; init; }
 }

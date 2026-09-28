@@ -140,6 +140,19 @@ public sealed class RosClient : IDisposable
         return dto.AcknowledgementId ?? throw new RosClientException("ROS acknowledged the ERR submission but returned no acknowledgement ID.");
     }
 
+    /// <summary>Status of every submission made under a payroll run reference - lets you check a run without
+    /// knowing the (randomly generated) submission IDs.</summary>
+    public async Task<CheckPayrollRunResponseDto> CheckPayrollRunAsync(
+        string taxYear, string payrollRunReference, CancellationToken ct = default)
+    {
+        var path = $"paye-employers/v1/rest/payroll/{_options.EmployerRegistrationNumber}/{taxYear}/{payrollRunReference}" +
+                   $"?softwareUsed={Uri.EscapeDataString(_options.SoftwareUsed)}&softwareVersion={Uri.EscapeDataString(_options.SoftwareVersion)}";
+        using var response = await _http.GetAsync(path, ct);
+        await EnsureSuccess(response, ct);
+        return await response.Content.ReadFromJsonAsync<CheckPayrollRunResponseDto>(JsonOptions, ct)
+            ?? throw new RosClientException("ROS returned an empty check-run response.");
+    }
+
     public async Task<CheckPayrollSubmissionResponseDto> CheckPayrollSubmissionAsync(
         string taxYear, string payrollRunReference, string submissionId, CancellationToken ct = default)
     {
