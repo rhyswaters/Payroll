@@ -140,6 +140,28 @@ public sealed class RosClient : IDisposable
         return dto.AcknowledgementId ?? throw new RosClientException("ROS acknowledged the ERR submission but returned no acknowledgement ID.");
     }
 
+    public async Task<CheckErrRunResponseDto> CheckErrRunAsync(
+        string taxYear, string errRunReference, CancellationToken ct = default)
+    {
+        var path = $"paye-employers/v1/rest/enhanced_reporting/{_options.EmployerRegistrationNumber}/{taxYear}/{errRunReference}" +
+                   $"?softwareUsed={Uri.EscapeDataString(_options.SoftwareUsed)}&softwareVersion={Uri.EscapeDataString(_options.SoftwareVersion)}";
+        using var response = await _http.GetAsync(path, ct);
+        await EnsureSuccess(response, ct);
+        return await response.Content.ReadFromJsonAsync<CheckErrRunResponseDto>(JsonOptions, ct)
+            ?? throw new RosClientException("ROS returned an empty ERR check-run response.");
+    }
+
+    public async Task<CheckErrSubmissionResponseDto> CheckErrSubmissionAsync(
+        string taxYear, string errRunReference, string submissionId, CancellationToken ct = default)
+    {
+        var path = $"paye-employers/v1/rest/enhanced_reporting/{_options.EmployerRegistrationNumber}/{taxYear}/{errRunReference}/{submissionId}" +
+                   $"?softwareUsed={Uri.EscapeDataString(_options.SoftwareUsed)}&softwareVersion={Uri.EscapeDataString(_options.SoftwareVersion)}";
+        using var response = await _http.GetAsync(path, ct);
+        await EnsureSuccess(response, ct);
+        return await response.Content.ReadFromJsonAsync<CheckErrSubmissionResponseDto>(JsonOptions, ct)
+            ?? throw new RosClientException("ROS returned an empty ERR check-submission response.");
+    }
+
     /// <summary>Status of every submission made under a payroll run reference - lets you check a run without
     /// knowing the (randomly generated) submission IDs.</summary>
     public async Task<CheckPayrollRunResponseDto> CheckPayrollRunAsync(

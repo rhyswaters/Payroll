@@ -57,8 +57,8 @@ Diagnostic commands (none of these submit anything):
 
 ```
 dotnet run -- --list-rpns    # lists every RPN ROS holds for this employer/tax year
-dotnet run -- --check-submission  # asks for a month, then shows ROS's processing status for that month's payroll run,
-                                  # including any payslips ROS rejected (those aren't saved even when the status is COMPLETED)
+dotnet run -- --check-submission  # asks for a month, then shows ROS's processing status for that month's payroll run and
+                                  # ERR (e-working) run, including anything ROS rejected (not saved even when COMPLETED)
 dotnet run -- --resubmit-payslip  # re-sends a payslip ROS rejected: ROS + YTD only, skips Manager.io and ERR (already
                                   # recorded by the original run). Roll YTD back with --seed-ytd first if it already includes it.
 dotnet run -- --show-ytd     # shows the locally tracked year-to-date totals

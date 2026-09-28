@@ -122,9 +122,13 @@ async Task<int> RunOnce(string[] args)
             return 1;
         }
 
-        // Must match the run reference the Run payroll option submits under.
+        // Run references must match what the Run payroll option submits under.
         var runReference = $"PayrollRun-{year}-{month:00}";
-        CheckPayrollRunResponseDto run;
+        var errRunReference = $"ErrRun-{year}-{month:00}";
+        var anyInvalid = false;
+        var payrollCheckFailed = false;
+
+        CheckPayrollRunResponseDto? run = null;
         try
         {
             run = await ros.CheckPayrollRunAsync(year.ToString(), runReference);
@@ -132,42 +136,90 @@ async Task<int> RunOnce(string[] args)
         catch (RosClientException ex)
         {
             Console.WriteLine($"Couldn't check {runReference}: {ex.Message}");
-            return 1;
+            payrollCheckFailed = true;
         }
 
-        Console.WriteLine($"{runReference}: {run.Status}");
-        if (run.TaxOnIncome is not null)
-            Console.WriteLine($"  Run totals - PAYE {run.TaxOnIncome:C}, PRSI {run.Prsi:C}, USC {run.Usc:C}, LPT {run.Lpt:C}");
-        foreach (var e in run.ValidationErrors ?? [])
-            Console.WriteLine($"  ERROR {e.Code} {e.Path}: {e.Description}");
-
-        var anyInvalid = false;
-        foreach (var s in run.Submissions)
+        if (run is not null)
         {
-            var detail = await ros.CheckPayrollSubmissionAsync(year.ToString(), runReference, s.SubmissionId);
-            Console.WriteLine();
-            Console.WriteLine($"  {detail.SubmissionId}: {detail.Status}");
-            if (detail.SubmissionSummary is { } sum)
-                Console.WriteLine($"    {sum.PayslipCount} payslip(s) - PAYE {sum.TaxOnIncome:C}, PRSI {sum.Prsi:C}, USC {sum.Usc:C}");
-            foreach (var e in detail.ValidationErrors ?? [])
-                Console.WriteLine($"    ERROR {e.Code} {e.Path}: {e.Description}");
-            foreach (var p in detail.InvalidPayslips ?? [])
+            Console.WriteLine($"{runReference}: {run.Status}");
+            if (run.TaxOnIncome is not null)
+                Console.WriteLine($"  Run totals - PAYE {run.TaxOnIncome:C}, PRSI {run.Prsi:C}, USC {run.Usc:C}, LPT {run.Lpt:C}");
+            foreach (var e in run.ValidationErrors ?? [])
+                Console.WriteLine($"  ERROR {e.Code} {e.Path}: {e.Description}");
+
+            foreach (var s in run.Submissions)
             {
-                anyInvalid = true;
-                Console.WriteLine($"    INVALID PAYSLIP {p.LineItemId} (not saved by ROS):");
-                foreach (var e in p.Errors)
-                    Console.WriteLine($"      {e.Code} {e.Path}: {e.Description}");
+                var detail = await ros.CheckPayrollSubmissionAsync(year.ToString(), runReference, s.SubmissionId);
+                Console.WriteLine();
+                Console.WriteLine($"  {detail.SubmissionId}: {detail.Status}");
+                if (detail.SubmissionSummary is { } sum)
+                    Console.WriteLine($"    {sum.PayslipCount} payslip(s) - PAYE {sum.TaxOnIncome:C}, PRSI {sum.Prsi:C}, USC {sum.Usc:C}");
+                foreach (var e in detail.ValidationErrors ?? [])
+                    Console.WriteLine($"    ERROR {e.Code} {e.Path}: {e.Description}");
+                foreach (var p in detail.InvalidPayslips ?? [])
+                {
+                    anyInvalid = true;
+                    Console.WriteLine($"    INVALID PAYSLIP {p.LineItemId} (not saved by ROS):");
+                    foreach (var e in p.Errors)
+                        Console.WriteLine($"      {e.Code} {e.Path}: {e.Description}");
+                }
+                foreach (var w in detail.PayslipWarnings ?? [])
+                foreach (var e in w.Warnings)
+                    Console.WriteLine($"    Warning on {w.LineItemId}: {e.Code} {e.Path}: {e.Description}");
             }
-            foreach (var w in detail.PayslipWarnings ?? [])
-            foreach (var e in w.Warnings)
-                Console.WriteLine($"    Warning on {w.LineItemId}: {e.Code} {e.Path}: {e.Description}");
+
+            if (run.Submissions.Count == 0)
+                Console.WriteLine("  No submissions found under this run.");
         }
 
-        if (run.Submissions.Count == 0)
-            Console.WriteLine("  No submissions found under this run.");
-        else if (anyInvalid)
-            Console.WriteLine("\nROS rejected at least one payslip - it won't count toward this period's liability until corrected.");
-        return anyInvalid ? 1 : 0;
+        Console.WriteLine();
+        CheckErrRunResponseDto? errRun = null;
+        try
+        {
+            errRun = await ros.CheckErrRunAsync(year.ToString(), errRunReference);
+        }
+        catch (RosClientException ex)
+        {
+            // Expected when no e-working days were reported that month - there's no ERR run to find.
+            Console.WriteLine($"Couldn't check {errRunReference} (normal if no e-working allowance was paid that month): {ex.Message}");
+        }
+
+        if (errRun is not null)
+        {
+            Console.WriteLine($"{errRunReference} (Enhanced Reporting): {errRun.Status}");
+            if (errRun.Amount is not null)
+                Console.WriteLine($"  Run total {errRun.Amount:C}");
+            foreach (var e in errRun.ValidationErrors ?? [])
+                Console.WriteLine($"  ERROR {e.Code} {e.Path}: {e.Description}");
+
+            foreach (var s in errRun.Submissions)
+            {
+                var detail = await ros.CheckErrSubmissionAsync(year.ToString(), errRunReference, s.SubmissionId);
+                Console.WriteLine();
+                Console.WriteLine($"  {detail.SubmissionId}: {detail.Status}");
+                if (detail.Summary is { } sum)
+                    Console.WriteLine($"    {sum.Count} item(s) - {sum.Amount:C}");
+                foreach (var e in detail.ValidationErrors ?? [])
+                    Console.WriteLine($"    ERROR {e.Code} {e.Path}: {e.Description}");
+                foreach (var item in detail.InvalidItems ?? [])
+                {
+                    anyInvalid = true;
+                    Console.WriteLine($"    INVALID ITEM {item.LineItemId} (not saved by ROS):");
+                    foreach (var e in item.Errors)
+                        Console.WriteLine($"      {e.Code} {e.Path}: {e.Description}");
+                }
+                foreach (var w in detail.Warnings ?? [])
+                foreach (var e in w.Warnings)
+                    Console.WriteLine($"    Warning on {w.LineItemId}: {e.Code} {e.Path}: {e.Description}");
+            }
+
+            if (errRun.Submissions.Count == 0)
+                Console.WriteLine("  No submissions found under this run.");
+        }
+
+        if (anyInvalid)
+            Console.WriteLine("\nROS rejected at least one item above - rejected items aren't saved and need correcting and resubmitting.");
+        return anyInvalid || payrollCheckFailed ? 1 : 0;
     }
 
     if (args.Contains("--dry-run"))
@@ -1035,7 +1087,7 @@ static string[]? PromptForMenuChoice()
         Console.WriteLine("8. Mark a VAT period as filed manually");
         Console.WriteLine("9. List RPNs held by ROS");
         Console.WriteLine("10. Export expenses report (CSV) - for your accountant's year-end accounts");
-        Console.WriteLine("11. Check payroll submission status on ROS");
+        Console.WriteLine("11. Check payroll + ERR submission status on ROS");
         Console.WriteLine("12. Resubmit a payslip ROS rejected - ROS + YTD only, skips Manager.io/ERR");
         Console.WriteLine("0. Quit");
         Console.Write("Choose an option: ");
