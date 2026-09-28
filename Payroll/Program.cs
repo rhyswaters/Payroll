@@ -158,8 +158,15 @@ async Task<int> RunOnce(string[] args)
                     Console.WriteLine($"    ERROR {e.Code} {e.Path}: {e.Description}");
                 foreach (var p in detail.InvalidPayslips ?? [])
                 {
-                    anyInvalid = true;
-                    Console.WriteLine($"    INVALID PAYSLIP {p.LineItemId} (not saved by ROS):");
+                    if (run.PayslipSummaries.Any(x => x.LineItemId == p.LineItemId))
+                    {
+                        Console.WriteLine($"    Rejected payslip {p.LineItemId} - since resubmitted and saved, no action needed:");
+                    }
+                    else
+                    {
+                        anyInvalid = true;
+                        Console.WriteLine($"    INVALID PAYSLIP {p.LineItemId} (not saved by ROS):");
+                    }
                     foreach (var e in p.Errors)
                         Console.WriteLine($"      {e.Code} {e.Path}: {e.Description}");
                 }
@@ -203,8 +210,15 @@ async Task<int> RunOnce(string[] args)
                     Console.WriteLine($"    ERROR {e.Code} {e.Path}: {e.Description}");
                 foreach (var item in detail.InvalidItems ?? [])
                 {
-                    anyInvalid = true;
-                    Console.WriteLine($"    INVALID ITEM {item.LineItemId} (not saved by ROS):");
+                    if (errRun.SavedItems.Any(x => x.LineItemId == item.LineItemId))
+                    {
+                        Console.WriteLine($"    Rejected item {item.LineItemId} - since resubmitted and saved, no action needed:");
+                    }
+                    else
+                    {
+                        anyInvalid = true;
+                        Console.WriteLine($"    INVALID ITEM {item.LineItemId} (not saved by ROS):");
+                    }
                     foreach (var e in item.Errors)
                         Console.WriteLine($"      {e.Code} {e.Path}: {e.Description}");
                 }

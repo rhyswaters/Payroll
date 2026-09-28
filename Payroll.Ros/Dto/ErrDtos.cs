@@ -42,6 +42,9 @@ public sealed class CheckErrRunResponseDto
     [JsonPropertyName("amount")] public decimal? Amount { get; init; }
     [JsonPropertyName("expenseBenefitSubmissions")] public List<CheckErrSubmissionResponseDto> Submissions { get; init; } = [];
     [JsonPropertyName("validationErrors")] public List<ValidationErrorDto>? ValidationErrors { get; init; }
+
+    /// <summary>Items ROS actually saved for the run - see <see cref="CheckPayrollRunResponseDto.PayslipSummaries"/>.</summary>
+    [JsonPropertyName("expenseBenefitSummaries")] public List<LineItemSummaryDto> SavedItems { get; init; } = [];
 }
 
 public sealed class CheckErrSubmissionResponseDto

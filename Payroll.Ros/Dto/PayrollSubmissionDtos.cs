@@ -103,4 +103,13 @@ public sealed class CheckPayrollRunResponseDto
     [JsonPropertyName("lpt")] public decimal? Lpt { get; init; }
     [JsonPropertyName("submissions")] public List<CheckPayrollSubmissionResponseDto> Submissions { get; init; } = [];
     [JsonPropertyName("validationErrors")] public List<ValidationErrorDto>? ValidationErrors { get; init; }
+
+    /// <summary>Payslips ROS actually saved for the run - a line item rejected in one submission but
+    /// present here was fixed by a later resubmission.</summary>
+    [JsonPropertyName("payslipSummaries")] public List<LineItemSummaryDto> PayslipSummaries { get; init; } = [];
+}
+
+public sealed class LineItemSummaryDto
+{
+    [JsonPropertyName("lineItemID")] public string? LineItemId { get; init; }
 }
