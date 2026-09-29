@@ -26,6 +26,14 @@ public sealed class ManagerIoOptions
     public IReadOnlyDictionary<string, string> BenefitInKindDeductionItemKeys { get; init; } =
         new Dictionary<string, string>();
 
+    /// <summary>The expense account the tax-free e-working allowance is paid against, as its own payment
+    /// separate from salary. Required only when a payslip has an e-working allowance.</summary>
+    public string? EworkingAllowanceAccountKey { get; init; }
+
+    /// <summary>Payslip number custom fields that record running year-to-date totals (after this
+    /// payslip) - what an accountant reconciles payslips against. Optional; not set means none are filled.</summary>
+    public PayslipYtdCustomFieldKeys? PayslipYtdCustomFieldKeys { get; init; }
+
     /// <summary>The system "VAT Payable" control account - only required for VAT return reconciliation.</summary>
     public string? VatPayableAccountKey { get; init; }
 
@@ -37,4 +45,24 @@ public sealed class ManagerIoOptions
     /// tell a liability-clearing payment apart from a genuine purchase, since both post an ordinary
     /// Payment line against "VAT Payable" and look identical otherwise. Defaults to "Revenue".</summary>
     public string RevenuePayeeName { get; init; } = "Revenue";
+}
+
+/// <summary>Keys of the Manager.io payslip number custom fields, named after the field each one fills
+/// (Manager.io's own display names are in brackets).</summary>
+public sealed class PayslipYtdCustomFieldKeys
+{
+    /// <summary>"Gross Pay Less Pension Deductions YTD" - pay for income tax to date.</summary>
+    public string? PayForIncomeTax { get; set; }
+
+    /// <summary>"Gross Pay YTD" - pay for USC to date (salary + benefits in kind, no pension relief).</summary>
+    public string? PayForUsc { get; set; }
+
+    /// <summary>"PAYE deducted YTD".</summary>
+    public string? IncomeTax { get; set; }
+
+    /// <summary>"USC deducted YTD".</summary>
+    public string? Usc { get; set; }
+
+    /// <summary>"PRSI deducted YTD".</summary>
+    public string? Prsi { get; set; }
 }

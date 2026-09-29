@@ -26,7 +26,13 @@ public sealed class PayslipFormDto
     [JsonPropertyName("Earnings")] public required List<EarningsLineDto> Earnings { get; init; }
     [JsonPropertyName("Deductions")] public required List<DeductionLineDto> Deductions { get; init; }
     [JsonPropertyName("Contributions")] public List<object> Contributions { get; init; } = [];
-    [JsonPropertyName("CustomFields2")] public object CustomFields2 { get; init; } = new();
+    [JsonPropertyName("CustomFields2")] public CustomFields2Dto CustomFields2 { get; init; } = new();
+}
+
+/// <summary>Manager.io's custom field values, grouped by field type and keyed by custom field key.</summary>
+public sealed class CustomFields2Dto
+{
+    [JsonPropertyName("Decimals")] public Dictionary<string, decimal> Decimals { get; init; } = [];
 }
 
 public sealed class PaymentLineDto

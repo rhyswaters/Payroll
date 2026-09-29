@@ -44,7 +44,9 @@ public static class PayrollCalculator
         var prsiRatePercent = prsiRate.EmployeeRatePercent!.Value;
         var employeePrsi = Round(payForEmployeePrsi * prsiRatePercent / 100m);
 
-        var netPay = inputs.GrossPay - inputs.EmployeePensionContribution - incomeTax - usc - employeePrsi + inputs.EworkingAllowance;
+        // The tax-free e-working allowance is deliberately not part of net pay - it's paid as its own separate
+        // payment, so net pay here is purely what the taxed salary nets down to.
+        var netPay = inputs.GrossPay - inputs.EmployeePensionContribution - incomeTax - usc - employeePrsi;
 
         return new PayslipResult(
             inputs, rpn.RpnNumber,

@@ -68,6 +68,8 @@ async Task<int> RunOnce(string[] args)
     if (string.IsNullOrWhiteSpace(managerIoConfig.EmployeeKey)) missing.Add("ManagerIo:EmployeeKey");
     if (string.IsNullOrWhiteSpace(managerIoConfig.BankAccountKey)) missing.Add("ManagerIo:BankAccountKey");
     if (string.IsNullOrWhiteSpace(employee.DateOfBirth)) missing.Add("Employee:DateOfBirth (needed for Enhanced Reporting Requirements submissions)");
+    if (employee.DefaultMonthlyEworkingDays > 0 && string.IsNullOrWhiteSpace(managerIoConfig.EworkingAllowanceAccountKey))
+        missing.Add("ManagerIo:EworkingAllowanceAccountKey (the account the e-working allowance payment posts to)");
     if (employee.AddressLines.Count == 0 || string.IsNullOrWhiteSpace(employee.County)) missing.Add("Employee:AddressLines/County (needed for Enhanced Reporting Requirements submissions)");
 
     if (missing.Count > 0)
@@ -362,11 +364,11 @@ async Task<int> RunOnce(string[] args)
         var year = DateTime.Today.Year;
         var current = ytdStore.Get(year);
         Console.WriteLine($"Locally tracked year-to-date totals for {year}:");
-        Console.WriteLine($"  Pay for income tax to date: {current.PayForIncomeTaxToDate:C}");
-        Console.WriteLine($"  Income tax deducted to date: {current.IncomeTaxDeductedToDate:C}");
-        Console.WriteLine($"  Pay for USC to date:         {current.PayForUscToDate:C}");
-        Console.WriteLine($"  USC deducted to date:        {current.UscDeductedToDate:C}");
-        Console.WriteLine($"  PRSI deducted to date:       {current.PrsiDeductedToDate:C}");
+        Console.WriteLine($"  Pay for income tax to date:            {current.PayForIncomeTaxToDate:C}");
+        Console.WriteLine($"  Income tax deducted to date:           {current.IncomeTaxDeductedToDate:C}");
+        Console.WriteLine($"  Gross pay (USC & PRSI base) to date:   {current.PayForUscToDate:C}");
+        Console.WriteLine($"  USC deducted to date:                  {current.UscDeductedToDate:C}");
+        Console.WriteLine($"  PRSI deducted to date:                 {current.PrsiDeductedToDate:C}");
         return 0;
     }
 
@@ -377,7 +379,7 @@ async Task<int> RunOnce(string[] args)
         var seeded = new YearToDateTotals(
             PromptDecimal("Pay for income tax to date"),
             PromptDecimal("Income tax deducted to date"),
-            PromptDecimal("Pay for USC to date"),
+            PromptDecimal("Gross pay (USC & PRSI base, before pension) to date"),
             PromptDecimal("USC deducted to date"),
             PromptDecimal("PRSI deducted to date (informational only, doesn't affect any calculation)"));
         ytdStore.Set(year, seeded);
@@ -722,7 +724,7 @@ async Task<int> RunOnce(string[] args)
 
     var startingYtd = ytdStore.Get(taxYear);
     Console.WriteLine($"Locally tracked year-to-date before this payslip: pay for tax {startingYtd.PayForIncomeTaxToDate:C}, " +
-                       $"PAYE deducted {startingYtd.IncomeTaxDeductedToDate:C}, pay for USC {startingYtd.PayForUscToDate:C}, USC deducted {startingYtd.UscDeductedToDate:C}");
+                       $"PAYE deducted {startingYtd.IncomeTaxDeductedToDate:C}, gross pay (USC & PRSI base) {startingYtd.PayForUscToDate:C}, USC deducted {startingYtd.UscDeductedToDate:C}");
     Console.WriteLine("(run with --show-ytd to see this any time, or --seed-ytd to correct it)");
     Console.WriteLine();
 
@@ -868,7 +870,8 @@ async Task<int> RunOnce(string[] args)
             Console.WriteLine($"  Warning on {w.LineItemId}: {e.Code} {e.Path}: {e.Description}");
     }
 
-    ytdStore.Set(taxYear, ytdStore.Get(taxYear).Add(result));
+    var ytdAfter = ytdStore.Get(taxYear).Add(result);
+    ytdStore.Set(taxYear, ytdAfter);
 
     if (resubmitOnly)
     {
@@ -879,7 +882,7 @@ async Task<int> RunOnce(string[] args)
         return 0;
     }
 
-    Console.WriteLine("Recording payslip and payment in Manager.io...");
+    Console.WriteLine("Recording payslip and payments in Manager.io...");
 
     using var managerIo = new ManagerIoClient(new ManagerIoOptions
     {
@@ -892,21 +895,30 @@ async Task<int> RunOnce(string[] args)
         PayeDeductionItemKey = managerIoConfig.PayeDeductionItemKey,
         UscDeductionItemKey = managerIoConfig.UscDeductionItemKey,
         PrsiDeductionItemKey = managerIoConfig.PrsiDeductionItemKey,
-        BenefitInKindDeductionItemKeys = managerIoConfig.BenefitInKindDeductionItemKeys
+        BenefitInKindDeductionItemKeys = managerIoConfig.BenefitInKindDeductionItemKeys,
+        EworkingAllowanceAccountKey = managerIoConfig.EworkingAllowanceAccountKey,
+        PayslipYtdCustomFieldKeys = managerIoConfig.PayslipYtdCustomFieldKeys
     });
 
     try
     {
-        var payslipKey = await managerIo.CreatePayslipAsync(result);
+        var payslipKey = await managerIo.CreatePayslipAsync(result, ytdAfter);
         Console.WriteLine($"Manager.io payslip created: {payslipKey}");
 
         var paymentKey = await managerIo.CreatePaymentAsync(result.Inputs.PayDate, result.NetPay, "Salary");
-        Console.WriteLine($"Manager.io payment created: {paymentKey}");
+        Console.WriteLine($"Manager.io salary payment created: {paymentKey}");
+
+        if (result.EworkingAllowance > 0m)
+        {
+            var eworkingPaymentKey = await managerIo.CreateEworkingAllowancePaymentAsync(
+                result.Inputs.PayDate, result.EworkingAllowance, eworkingDays, $"{employee.FirstName} {employee.FamilyName}");
+            Console.WriteLine($"Manager.io e-working allowance payment created: {eworkingPaymentKey}");
+        }
     }
     catch (ManagerIoClientException ex)
     {
         Console.WriteLine($"ROS submission succeeded but Manager.io recording failed: {ex.Message}");
-        Console.WriteLine("You'll need to record this payslip/payment in Manager.io manually.");
+        Console.WriteLine("Check which of the payslip / salary payment / e-working payment above were created, and record the rest in Manager.io manually.");
         return 1;
     }
 
@@ -1141,7 +1153,6 @@ static void PrintPayslip(PayslipResult r)
     Console.WriteLine();
     Console.WriteLine($"Pay date:              {r.Inputs.PayDate:yyyy-MM-dd}");
     Console.WriteLine($"Gross pay:             {r.GrossPay,10:C}");
-    Console.WriteLine($"e-working allowance:   {r.EworkingAllowance,10:C} (tax-free, reported to ROS via ERR)");
     foreach (var b in r.BenefitsInKind)
         Console.WriteLine($"{b.Description,-23}{b.Amount,10:C} (notional {b.Category} BIK - taxed but not paid in cash)");
     Console.WriteLine($"Pension contribution:  {r.EmployeePensionContribution,10:C}");
@@ -1149,4 +1160,6 @@ static void PrintPayslip(PayslipResult r)
     Console.WriteLine($"USC:                   {r.Usc,10:C}");
     Console.WriteLine($"PRSI ({r.PrsiRatePercent}%):        {r.EmployeePrsi,10:C}");
     Console.WriteLine($"Net pay:               {r.NetPay,10:C}");
+    if (r.EworkingAllowance > 0m)
+        Console.WriteLine($"e-working allowance:   {r.EworkingAllowance,10:C} (tax-free, paid separately, reported to ROS via ERR)");
 }

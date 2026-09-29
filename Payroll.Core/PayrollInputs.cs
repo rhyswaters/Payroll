@@ -11,10 +11,9 @@ public sealed record PayrollInputs(
     decimal GrossPay,
     decimal EmployeePensionContribution,
     /// <summary>A tax-free reimbursement (e.g. the Revenue remote-working daily allowance) paid alongside
-    /// salary. Excluded from PAYE/USC/PRSI and from the ROS payroll submission's taxable pay - it's added
-    /// straight to net pay and recorded as its own Manager.io earnings line. Note: since 2024 this kind of
-    /// payment has its own separate Revenue reporting obligation (Enhanced Reporting Requirements), which
-    /// this calculator does not yet submit.
+    /// salary. Excluded from PAYE/USC/PRSI, from the ROS payroll submission, from net pay and from the
+    /// Manager.io payslip - it's paid as its own separate Manager.io payment and reported to Revenue via
+    /// the Enhanced Reporting Requirements (ERR) submission instead.
     decimal EworkingAllowance = 0m,
     /// <summary>Any Benefits in Kind for this period (e.g. employer-paid medical insurance, a company
     /// car). See <see cref="BenefitInKindLine"/> - adding a new kind of benefit is a config/data change

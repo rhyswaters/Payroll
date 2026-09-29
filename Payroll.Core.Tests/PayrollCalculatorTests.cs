@@ -125,6 +125,24 @@ public class PayrollCalculatorTests
         return Math.Max(0m, tax - yearlyCredits);
     }
 
+    [Fact]
+    public void EworkingAllowance_AffectsNeitherTaxableFiguresNorNetPay()
+    {
+        var payDate = new DateOnly(2026, 9, 28);
+        var without = PayrollCalculator.Calculate(FreshYearRpn(), FreshYear, PrsiClassS,
+            PayrollInputs.MonthlyFor("LI-1", Employee, "Rhys", "Waters", payDate, 5833.33m, 1458.33m));
+        var with = PayrollCalculator.Calculate(FreshYearRpn(), FreshYear, PrsiClassS,
+            PayrollInputs.MonthlyFor("LI-1", Employee, "Rhys", "Waters", payDate, 5833.33m, 1458.33m, eworkingAllowance: 64m));
+
+        Assert.Equal(without.PayForIncomeTax, with.PayForIncomeTax);
+        Assert.Equal(without.PayForUsc, with.PayForUsc);
+        Assert.Equal(without.IncomeTax, with.IncomeTax);
+        Assert.Equal(without.Usc, with.Usc);
+        Assert.Equal(without.EmployeePrsi, with.EmployeePrsi);
+        Assert.Equal(without.NetPay, with.NetPay);
+        Assert.Equal(64m, with.EworkingAllowance);
+    }
+
     [Theory]
     // €500/week threshold = €2,166.67/month on a 52-week year.
     [InlineData(2166.66, "S0")]

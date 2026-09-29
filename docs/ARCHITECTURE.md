@@ -43,7 +43,12 @@ Running `dotnet run` in `Payroll/` (or picking "Run payroll" from the menu) does
       and stops if any payslip comes back invalid. ROS validates payslips asynchronously and silently
       doesn't save invalid ones, even when the submission status is `COMPLETED`.
    b. Update the local YTD store with this payslip's figures.
-   c. `ManagerIoClient.CreatePayslipAsync` + `CreatePaymentAsync` — record it in the books.
+   c. `ManagerIoClient.CreatePayslipAsync` + `CreatePaymentAsync` — record it in the books. The payslip's
+      YTD number custom fields (`ManagerIo:PayslipYtdCustomFieldKeys`) get the running totals *including*
+      this payslip, which is what an accountant reconciles against. The tax-free e-working allowance is
+      kept off the payslip (it inflated gross pay there and made the tax look wrong) and out of the
+      Salary payment. `CreateEworkingAllowancePaymentAsync` pays it as its own payment to the employee
+      against `ManagerIo:EworkingAllowanceAccountKey`. Net pay never includes it.
    d. If e-working days > 0, `RosClient.SubmitRemoteWorkingAllowanceAsync` — a separate Enhanced
       Reporting Requirements (ERR) submission.
 

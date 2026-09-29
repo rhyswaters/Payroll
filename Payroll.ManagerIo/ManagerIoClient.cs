@@ -26,15 +26,17 @@ public sealed class ManagerIoClient : IDisposable
     }
 
     /// <summary>Creates a payslip recording the tax breakdown for a payslip already submitted to ROS.
-    /// Field names/casing match Manager.io's own (inconsistent) API, copied from a live example.</summary>
-    public async Task<string> CreatePayslipAsync(PayslipResult payslip, CancellationToken ct = default)
+    /// Field names/casing match Manager.io's own (inconsistent) API, copied from a live example. The
+    /// tax-free e-working allowance is deliberately left off - on the payslip it inflated gross pay and
+    /// made the tax figures look wrong - and is paid separately via <see cref="CreateEworkingAllowancePaymentAsync"/>.
+    /// <paramref name="yearToDateAfter"/> is the running totals including this payslip, written to the
+    /// payslip's YTD custom fields.</summary>
+    public async Task<string> CreatePayslipAsync(PayslipResult payslip, YearToDateTotals yearToDateAfter, CancellationToken ct = default)
     {
         var earnings = new List<EarningsLineDto>
         {
             new() { Description = "Base Salary", UnitPrice = payslip.GrossPay }
         };
-        if (payslip.EworkingAllowance > 0m)
-            earnings.Add(new EarningsLineDto { Description = "e-working Allowance", UnitPrice = payslip.EworkingAllowance });
 
         var deductions = new List<DeductionLineDto>
         {
@@ -65,10 +67,50 @@ public sealed class ManagerIoClient : IDisposable
             Date = ToManagerIoDate(payslip.Inputs.PayDate),
             Employee = _options.EmployeeKey,
             Earnings = earnings,
-            Deductions = deductions
+            Deductions = deductions,
+            CustomFields2 = new CustomFields2Dto { Decimals = YtdCustomFieldValues(yearToDateAfter) }
         };
 
         using var response = await _http.PostAsJsonAsync("payslip-form", body, JsonOptions, ct);
+        return await ExtractCreatedKey(response, ct);
+    }
+
+    private Dictionary<string, decimal> YtdCustomFieldValues(YearToDateTotals ytd)
+    {
+        var values = new Dictionary<string, decimal>();
+        if (_options.PayslipYtdCustomFieldKeys is not { } keys) return values;
+
+        void Set(string? key, decimal value)
+        {
+            if (!string.IsNullOrWhiteSpace(key)) values[key] = value;
+        }
+        Set(keys.PayForIncomeTax, ytd.PayForIncomeTaxToDate);
+        Set(keys.PayForUsc, ytd.PayForUscToDate);
+        Set(keys.IncomeTax, ytd.IncomeTaxDeductedToDate);
+        Set(keys.Usc, ytd.UscDeductedToDate);
+        Set(keys.Prsi, ytd.PrsiDeductedToDate);
+        return values;
+    }
+
+    /// <summary>Pays the tax-free e-working allowance as its own payment to the employee, against
+    /// <see cref="ManagerIoOptions.EworkingAllowanceAccountKey"/> - kept off the payslip and out of the
+    /// Salary payment so it can't be mistaken for taxable pay.</summary>
+    public async Task<string> CreateEworkingAllowancePaymentAsync(
+        DateOnly payDate, decimal amount, int days, string employeeName, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(_options.EworkingAllowanceAccountKey))
+            throw new ManagerIoClientException("ManagerIo:EworkingAllowanceAccountKey must be configured to pay an e-working allowance.");
+
+        var body = new PaymentFormDto
+        {
+            Date = ToManagerIoDate(payDate),
+            PaidFrom = _options.BankAccountKey,
+            Contact = employeeName,
+            Description = $"E-Working Allowance {payDate.ToString("MMMM yyyy", CultureInfo.InvariantCulture)} - {days} Days",
+            Lines = [new PaymentLineDto { Account = _options.EworkingAllowanceAccountKey, Amount = amount }]
+        };
+
+        using var response = await _http.PostAsJsonAsync("payment-form", body, JsonOptions, ct);
         return await ExtractCreatedKey(response, ct);
     }
 
