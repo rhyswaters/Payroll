@@ -11,7 +11,14 @@ public sealed record PayslipResult(
     decimal PrsiRatePercent,
     decimal PayForEmployeePrsi,
     decimal EmployeePrsi,
-    decimal NetPay
+    decimal NetPay,
+    IncomeTaxCalculationBasis TaxBasis,
+    /// <summary>The RPN's yearly tax credits apportioned to this period on the cumulative basis - what
+    /// this payslip's PAYE was actually worked out against.</summary>
+    decimal CumulativeTaxCredits,
+    /// <summary>The RPN's yearly standard rate cut-off point (top of the 20% band) apportioned to this
+    /// period on the cumulative basis.</summary>
+    decimal CumulativeStandardRateCutOff
 )
 {
     public decimal GrossPay => Inputs.GrossPay;

@@ -30,7 +30,8 @@ public sealed class ManagerIoClient : IDisposable
     /// tax-free e-working allowance is deliberately left off - on the payslip it inflated gross pay and
     /// made the tax figures look wrong - and is paid separately via <see cref="CreateEworkingAllowancePaymentAsync"/>.
     /// <paramref name="yearToDateAfter"/> is the running totals including this payslip, written to the
-    /// payslip's YTD custom fields.</summary>
+    /// payslip's YTD custom fields. The header custom fields (PPSN, PRSI class, tax basis, cumulative
+    /// credits/cut-off) are filled from the payslip itself.</summary>
     public async Task<string> CreatePayslipAsync(PayslipResult payslip, YearToDateTotals yearToDateAfter, CancellationToken ct = default)
     {
         var earnings = new List<EarningsLineDto>
@@ -68,7 +69,13 @@ public sealed class ManagerIoClient : IDisposable
             Employee = _options.EmployeeKey,
             Earnings = earnings,
             Deductions = deductions,
-            CustomFields2 = new CustomFields2Dto { Decimals = YtdCustomFieldValues(yearToDateAfter) }
+            CustomFields2 = new CustomFields2Dto
+            {
+                Strings = HeaderTextCustomFieldValues(payslip),
+                Decimals = YtdCustomFieldValues(yearToDateAfter)
+                    .Concat(HeaderNumberCustomFieldValues(payslip))
+                    .ToDictionary()
+            }
         };
 
         using var response = await _http.PostAsJsonAsync("payslip-form", body, JsonOptions, ct);
@@ -89,6 +96,35 @@ public sealed class ManagerIoClient : IDisposable
         Set(keys.IncomeTax, ytd.IncomeTaxDeductedToDate);
         Set(keys.Usc, ytd.UscDeductedToDate);
         Set(keys.Prsi, ytd.PrsiDeductedToDate);
+        return values;
+    }
+
+    private Dictionary<string, string> HeaderTextCustomFieldValues(PayslipResult payslip)
+    {
+        var values = new Dictionary<string, string>();
+        if (_options.PayslipHeaderCustomFieldKeys is not { } keys) return values;
+
+        void Set(string? key, string value)
+        {
+            if (!string.IsNullOrWhiteSpace(key)) values[key] = value;
+        }
+        Set(keys.Ppsn, payslip.Inputs.EmployeeId.EmployeePpsn);
+        Set(keys.PrsiClass, payslip.PrsiClass);
+        Set(keys.TaxBasis, payslip.TaxBasis == IncomeTaxCalculationBasis.Week1 ? "Week 1" : "Cumulative");
+        return values;
+    }
+
+    private Dictionary<string, decimal> HeaderNumberCustomFieldValues(PayslipResult payslip)
+    {
+        var values = new Dictionary<string, decimal>();
+        if (_options.PayslipHeaderCustomFieldKeys is not { } keys) return values;
+
+        void Set(string? key, decimal value)
+        {
+            if (!string.IsNullOrWhiteSpace(key)) values[key] = value;
+        }
+        Set(keys.CumulativeTaxCredits, payslip.CumulativeTaxCredits);
+        Set(keys.CumulativeCutOffPoint, payslip.CumulativeStandardRateCutOff);
         return values;
     }
 

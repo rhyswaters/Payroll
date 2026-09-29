@@ -34,6 +34,10 @@ public sealed class ManagerIoOptions
     /// payslip) - what an accountant reconciles payslips against. Optional; not set means none are filled.</summary>
     public PayslipYtdCustomFieldKeys? PayslipYtdCustomFieldKeys { get; init; }
 
+    /// <summary>Payslip custom fields shown in the payslip's header (PPSN, PRSI class, tax basis and the
+    /// cumulative credits/cut-off PAYE was calculated against). Optional; not set means none are filled.</summary>
+    public PayslipHeaderCustomFieldKeys? PayslipHeaderCustomFieldKeys { get; init; }
+
     /// <summary>The system "VAT Payable" control account - only required for VAT return reconciliation.</summary>
     public string? VatPayableAccountKey { get; init; }
 
@@ -65,4 +69,24 @@ public sealed class PayslipYtdCustomFieldKeys
 
     /// <summary>"PRSI deducted YTD".</summary>
     public string? Prsi { get; set; }
+}
+
+/// <summary>Keys of the Manager.io payslip header custom fields. Ppsn, PrsiClass and TaxBasis are text
+/// fields; CumulativeTaxCredits and CumulativeCutOffPoint are number fields.</summary>
+public sealed class PayslipHeaderCustomFieldKeys
+{
+    /// <summary>"PPSN".</summary>
+    public string? Ppsn { get; set; }
+
+    /// <summary>"PRSI Class" - the reported subclass, e.g. S1.</summary>
+    public string? PrsiClass { get; set; }
+
+    /// <summary>"Tax Basis" - Cumulative or Week 1, from the RPN.</summary>
+    public string? TaxBasis { get; set; }
+
+    /// <summary>"Cumulative Tax Credits".</summary>
+    public string? CumulativeTaxCredits { get; set; }
+
+    /// <summary>"Cumulative Cut-off Point" - standard rate cut-off point to date.</summary>
+    public string? CumulativeCutOffPoint { get; set; }
 }

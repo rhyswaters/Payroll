@@ -32,6 +32,7 @@ public sealed class PayslipFormDto
 /// <summary>Manager.io's custom field values, grouped by field type and keyed by custom field key.</summary>
 public sealed class CustomFields2Dto
 {
+    [JsonPropertyName("Strings")] public Dictionary<string, string> Strings { get; init; } = [];
     [JsonPropertyName("Decimals")] public Dictionary<string, decimal> Decimals { get; init; } = [];
 }
 

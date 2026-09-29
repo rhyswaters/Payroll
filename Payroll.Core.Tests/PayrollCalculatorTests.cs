@@ -46,6 +46,24 @@ public class PayrollCalculatorTests
     }
 
     [Fact]
+    public void ReportsCumulativeCreditsAndCutOff_FromCurrentRpnApportionedToDate()
+    {
+        // Figures from a real August payslip produced by the previous payroll software.
+        var rpn = FreshYearRpn() with
+        {
+            YearlyTaxCredits = 3822.60m,
+            TaxRates = [new RateBand(1, 20m, 43113m), new RateBand(2, 40m, null)]
+        };
+        var inputs = PayrollInputs.MonthlyFor("LI-8", Employee, "Rhys", "Waters", new DateOnly(2026, 8, 30), 5000m, 500m);
+
+        var result = PayrollCalculator.Calculate(rpn, FreshYear, PrsiClassS, inputs);
+
+        Assert.Equal(2548.40m, result.CumulativeTaxCredits);
+        Assert.Equal(28742.00m, result.CumulativeStandardRateCutOff);
+        Assert.Equal(IncomeTaxCalculationBasis.Cumulative, result.TaxBasis);
+    }
+
+    [Fact]
     public void LevelSalaryAcrossFullYear_MatchesSingleAnnualCalculation_ToTheCent()
     {
         var rpn = FreshYearRpn();

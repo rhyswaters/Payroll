@@ -897,7 +897,8 @@ async Task<int> RunOnce(string[] args)
         PrsiDeductionItemKey = managerIoConfig.PrsiDeductionItemKey,
         BenefitInKindDeductionItemKeys = managerIoConfig.BenefitInKindDeductionItemKeys,
         EworkingAllowanceAccountKey = managerIoConfig.EworkingAllowanceAccountKey,
-        PayslipYtdCustomFieldKeys = managerIoConfig.PayslipYtdCustomFieldKeys
+        PayslipYtdCustomFieldKeys = managerIoConfig.PayslipYtdCustomFieldKeys,
+        PayslipHeaderCustomFieldKeys = managerIoConfig.PayslipHeaderCustomFieldKeys
     });
 
     try
@@ -1160,6 +1161,8 @@ static void PrintPayslip(PayslipResult r)
     Console.WriteLine($"USC:                   {r.Usc,10:C}");
     Console.WriteLine($"PRSI ({r.PrsiRatePercent}%):        {r.EmployeePrsi,10:C}");
     Console.WriteLine($"Net pay:               {r.NetPay,10:C}");
+    Console.WriteLine($"Cumulative tax credits:{r.CumulativeTaxCredits,10:C} ({r.TaxBasis} basis)");
+    Console.WriteLine($"Cumulative cut-off:    {r.CumulativeStandardRateCutOff,10:C}");
     if (r.EworkingAllowance > 0m)
         Console.WriteLine($"e-working allowance:   {r.EworkingAllowance,10:C} (tax-free, paid separately, reported to ROS via ERR)");
 }

@@ -53,8 +53,21 @@ public static class PayrollCalculator
             Round(payForIncomeTax), incomeTax,
             Round(payForUsc), usc,
             prsi.ReportedClassFor(payForEmployeePrsi, inputs.PeriodsInYear), prsiRatePercent, Round(payForEmployeePrsi), employeePrsi,
-            Round(netPay));
+            Round(netPay),
+            rpn.IncomeTaxCalculationBasis,
+            Round(CumulativeAmount(rpn.YearlyTaxCredits, inputs.PeriodNumber, inputs.PeriodsInYear)),
+            Round(CumulativeAmount(StandardRateCutOff(rpn.TaxRates), inputs.PeriodNumber, inputs.PeriodsInYear)));
     }
+
+    /// <summary>A yearly RPN figure (credits or a band cut-off) apportioned to the year so far. Always the
+    /// current RPN's yearly figure over every period to date, never a sum of whatever earlier RPNs said -
+    /// that's what makes a mid-year credit change back-date itself to January.</summary>
+    private static decimal CumulativeAmount(decimal yearlyAmount, int periodNumber, int periodsInYear) =>
+        yearlyAmount * periodNumber / periodsInYear;
+
+    /// <summary>The top of the lowest (standard rate) PAYE band, or 0 if the RPN has only one unbounded band.</summary>
+    private static decimal StandardRateCutOff(IReadOnlyList<RateBand> bands) =>
+        bands.OrderBy(b => b.Index).FirstOrDefault()?.YearlyCutOff ?? 0m;
 
     private static decimal CalculateCumulativePeriodDeduction(
         decimal payThisPeriod, decimal payToDateBeforeThisPeriod, decimal deductedToDate,
@@ -62,7 +75,7 @@ public static class PayrollCalculator
     {
         var cumulativePay = payToDateBeforeThisPeriod + payThisPeriod;
         var cumulativeGrossDue = TaxAcrossCumulativeBands(cumulativePay, bands, periodNumber, periodsInYear);
-        var cumulativeCredits = yearlyCredits * periodNumber / periodsInYear;
+        var cumulativeCredits = CumulativeAmount(yearlyCredits, periodNumber, periodsInYear);
         var cumulativeDue = Math.Max(0m, cumulativeGrossDue - cumulativeCredits);
         return Round(cumulativeDue - deductedToDate);
     }
@@ -75,7 +88,7 @@ public static class PayrollCalculator
         foreach (var band in bands.OrderBy(b => b.Index))
         {
             var cumulativeCutOff = band.YearlyCutOff.HasValue
-                ? band.YearlyCutOff.Value * periodNumber / periodsInYear
+                ? CumulativeAmount(band.YearlyCutOff.Value, periodNumber, periodsInYear)
                 : decimal.MaxValue;
 
             var amountInBand = Math.Max(0m, Math.Min(cumulativePay, cumulativeCutOff) - previousCumulativeCutOff);
