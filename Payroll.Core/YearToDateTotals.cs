@@ -8,13 +8,18 @@ namespace Payroll.Core;
 ///
 /// PrsiDeductedToDate is informational only (PRSI isn't cumulative - see PayrollCalculator - so nothing
 /// reads it back into a calculation), kept purely so a running total can be reported.
+///
+/// LastPayDate is the pay date of the most recent payslip added, so a second run for the same month can
+/// be caught before it's submitted and added on top. Null when unknown (totals entered via --seed-ytd, or
+/// saved before this field existed).
 /// </summary>
 public sealed record YearToDateTotals(
     decimal PayForIncomeTaxToDate,
     decimal IncomeTaxDeductedToDate,
     decimal PayForUscToDate,
     decimal UscDeductedToDate,
-    decimal PrsiDeductedToDate = 0m)
+    decimal PrsiDeductedToDate = 0m,
+    DateOnly? LastPayDate = null)
 {
     public static readonly YearToDateTotals Zero = new(0m, 0m, 0m, 0m, 0m);
 
@@ -23,5 +28,6 @@ public sealed record YearToDateTotals(
         IncomeTaxDeductedToDate + payslip.IncomeTax,
         PayForUscToDate + payslip.PayForUsc,
         UscDeductedToDate + payslip.Usc,
-        PrsiDeductedToDate + payslip.EmployeePrsi);
+        PrsiDeductedToDate + payslip.EmployeePrsi,
+        payslip.Inputs.PayDate);
 }

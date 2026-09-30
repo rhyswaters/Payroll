@@ -369,6 +369,7 @@ async Task<int> RunOnce(string[] args)
         Console.WriteLine($"  Gross pay (USC & PRSI base) to date:   {current.PayForUscToDate:C}");
         Console.WriteLine($"  USC deducted to date:                  {current.UscDeductedToDate:C}");
         Console.WriteLine($"  PRSI deducted to date:                 {current.PrsiDeductedToDate:C}");
+        Console.WriteLine($"  Last payslip recorded:                 {current.LastPayDate?.ToString("dd/MM/yyyy") ?? "unknown"}");
         return 0;
     }
 
@@ -786,6 +787,23 @@ async Task<int> RunOnce(string[] args)
                     Console.WriteLine($"Warning: this date is in {payDate.Year}, but the RPN fetched at startup was for {taxYear}. Restart the app rather than continuing across a tax year boundary.");
             }
             result = Recalculate();
+        }
+    }
+
+    // The YTD totals are a plain running sum, so a second run for a month that's already been recorded
+    // would add that month's pay and tax on top again and throw off every later payslip's cumulative math.
+    if (startingYtd.LastPayDate is { } lastPaid
+        && (payDate.Year, payDate.Month).CompareTo((lastPaid.Year, lastPaid.Month)) <= 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"WARNING: a payslip dated {lastPaid:dd/MM/yyyy} is already included in the {taxYear} year-to-date totals,");
+        Console.WriteLine($"and this one is dated {payDate:dd/MM/yyyy}. Submitting would add another {payDate:MMMM}'s pay and tax on top.");
+        Console.WriteLine("If an earlier run for this month failed or was rejected, fix the totals with 'Seed/correct year-to-date totals' first.");
+        Console.Write("Type CONTINUE to submit anyway, anything else to cancel: ");
+        if (Console.ReadLine() != "CONTINUE")
+        {
+            Console.WriteLine("Cancelled - nothing was submitted.");
+            return 0;
         }
     }
 

@@ -161,6 +161,22 @@ public class PayrollCalculatorTests
         Assert.Equal(64m, with.EworkingAllowance);
     }
 
+    [Fact]
+    public void YearToDateAdd_RecordsThePayslipsPayDate_AndOlderSavedTotalsLoadWithoutOne()
+    {
+        var payDate = new DateOnly(2026, 9, 28);
+        var result = PayrollCalculator.Calculate(FreshYearRpn(), FreshYear, PrsiClassS,
+            PayrollInputs.MonthlyFor("LI-1", Employee, "Rhys", "Waters", payDate, 5000m, 500m));
+
+        Assert.Equal(payDate, FreshYear.Add(result).LastPayDate);
+
+        // year-to-date.json files written before LastPayDate existed must still load.
+        var saved = System.Text.Json.JsonSerializer.Deserialize<YearToDateTotals>(
+            """{"PayForIncomeTaxToDate":1,"IncomeTaxDeductedToDate":2,"PayForUscToDate":3,"UscDeductedToDate":4,"PrsiDeductedToDate":5}""")!;
+        Assert.Null(saved.LastPayDate);
+        Assert.Equal(1m, saved.PayForIncomeTaxToDate);
+    }
+
     [Theory]
     // €500/week threshold = €2,166.67/month on a 52-week year.
     [InlineData(2166.66, "S0")]
